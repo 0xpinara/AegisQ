@@ -32,3 +32,8 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   a test-only `gather`, plus lazy MPI initialisation so `import aegisq` never
   starts a communicator on its own.
 - MPI test suite launched by `scripts/run_mpi_tests.sh` at 1, 2 and 4 ranks.
+- Distributed execution of every gate placement that needs no communication:
+  local gates, diagonal gates on global qubits (one scalar multiply for the
+  whole shard), `cz` in all four placements, and `cx` with a global control
+  and a local target. Placements that still require an exchange raise a
+  precise error instead of producing a wrong state.

@@ -115,6 +115,23 @@ class DistributedStateVectorT {
     /// Reset to |0...0>.
     void reset();
 
+    void apply_x(int qubit);
+    void apply_y(int qubit);
+    void apply_z(int qubit);
+    void apply_h(int qubit);
+    void apply_s(int qubit);
+    void apply_t(int qubit);
+    void apply_rx(int qubit, double theta);
+    void apply_ry(int qubit, double theta);
+    void apply_rz(int qubit, double theta);
+    void apply_cnot(int control, int target);
+    void apply_cz(int a, int b);
+    void apply_swap(int a, int b);
+
+    /// Execute one gate, dispatching on where its operands are placed.
+    void apply_gate(const Gate& gate);
+    void apply_circuit(const Circuit& circuit);
+
     /// Globally reduced squared norm (an MPI_Allreduce when distributed).
     double norm() const;
 
@@ -131,6 +148,17 @@ class DistributedStateVectorT {
     void reset_metrics() { metrics_ = LocalMetrics{}; }
 
   private:
+    void check_operands(const Gate& gate) const;
+
+    /// Non-diagonal single-qubit gate on a global qubit (Phase 6).
+    void apply_global_single_qubit(const Gate& gate);
+
+    /// CX whose target sits on a global position (Phase 7).
+    void apply_cnot_global_target(int control, int target);
+
+    /// SWAP touching at least one global position (Phase 7).
+    void apply_swap_with_global(int a, int b);
+
     DistributedLayout layout_;
     std::vector<Amplitude> local_;
     LocalMetrics metrics_{};
