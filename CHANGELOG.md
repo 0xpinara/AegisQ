@@ -22,3 +22,6 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   partition-independent shot sampler.
 - pybind11 bindings exposing `StateVectorF64`, `StateVectorF32`, `Gate` and
   `Circuit`, plus the `cpp` simulator backend.
+- Randomised cross-validation against Qiskit as an external oracle: 100 seeded
+  circuits per run plus a slower 9-qubit, depth-30 sweep, covering both the
+  reference and native backends.

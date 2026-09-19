@@ -49,7 +49,7 @@ This repository is built in phases; only what is checked below is implemented.
 - [x] Phase 0 — project foundation, build system, CI, `aegisq doctor`
 - [x] Phase 1 — NumPy reference simulator
 - [x] Phase 2 — C++20 single-process state-vector engine
-- [ ] Phase 3 — randomised Qiskit cross-validation
+- [x] Phase 3 — randomised Qiskit cross-validation
 - [ ] Phase 4 — distributed MPI state layout
 - [ ] Phase 5 — local and diagonal distributed gates
 - [ ] Phase 6 — global non-diagonal single-qubit gates
