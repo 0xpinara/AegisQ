@@ -158,10 +158,14 @@ def test_custom_mapping_reproduces_the_same_state(geometry):
 
 
 def test_unsupported_placements_report_the_missing_capability(geometry):
-    """Paths that still need a pairwise exchange must fail loudly, not silently."""
+    """Paths that still need a pairwise exchange must fail loudly, not silently.
+
+    Updated as phases land: global single-qubit gates became available in
+    Phase 6, so the remaining gap is a CX whose *target* is global.
+    """
     if geometry["p"] == 0:
         pytest.skip("single-rank world places every qubit locally")
     n = geometry["num_qubits"]
-    circuit = Circuit(n, name="needs-exchange").h(geometry["global"][0])
+    circuit = Circuit(n, name="needs-exchange").cx(geometry["local"][0], geometry["global"][0])
     with pytest.raises(Exception, match="not implemented yet"):
         run_distributed(circuit)

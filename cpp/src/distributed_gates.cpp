@@ -264,10 +264,55 @@ void DistributedStateVectorT<Real>::apply_swap(int a, int b) {
 // ---------------------------------------------------------------------------
 
 template <typename Real>
+std::vector<std::complex<Real>>& DistributedStateVectorT<Real>::exchange_buffer(std::size_t count) {
+    if (exchange_.size() < count) {
+        exchange_.resize(count);
+    }
+    return exchange_;
+}
+
+template <typename Real>
+void DistributedStateVectorT<Real>::exchange_with_partner(int partner, const Amplitude* send,
+                                                          Amplitude* receive, std::size_t count) {
+#if AEGISQ_HAVE_MPI
+    // MPI element counts are int-typed. Shards larger than that are split into
+    // chunks rather than silently overflowing.
+    constexpr std::size_t kMaxChunk = 1ULL << 28;
+    std::size_t offset = 0;
+    while (offset < count) {
+        const std::size_t chunk = std::min(kMaxChunk, count - offset);
+        const int status = MPI_Sendrecv(
+            send + offset, static_cast<int>(chunk), MpiAmplitudeType<Real>::value(), partner, 0,
+            receive + offset, static_cast<int>(chunk), MpiAmplitudeType<Real>::value(), partner, 0,
+            MpiContext::instance().comm(), MPI_STATUS_IGNORE);
+        if (status != MPI_SUCCESS) {
+            throw std::runtime_error("MPI_Sendrecv failed during a shard exchange");
+        }
+        offset += chunk;
+    }
+#else
+    (void)partner;
+    (void)send;
+    (void)receive;
+    (void)count;
+    throw std::runtime_error("a pairwise exchange was requested in a build without MPI");
+#endif
+}
+
+template <typename Real>
 void DistributedStateVectorT<Real>::apply_global_single_qubit(const Gate& gate) {
-    throw std::runtime_error(
-        "non-diagonal single-qubit gates on a global qubit are not implemented yet: " +
-        to_string(gate));
+    const int qubit = gate.qubits[0];
+    const int partner = layout_.partner_rank_for_global_qubit(qubit);
+    const int bit = layout_.global_bit(qubit);
+    const std::size_t count = local_.size();
+
+    // Every amplitude on this rank pairs with one on the partner rank, so the
+    // whole shard crosses the network exactly once.
+    std::vector<Amplitude>& incoming = exchange_buffer(count);
+    exchange_with_partner(partner, local_.data(), incoming.data(), count);
+
+    kernels::apply_single_qubit_paired(local_.data(), incoming.data(), count,
+                                       single_qubit_matrix(gate), bit);
 }
 
 template <typename Real>

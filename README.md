@@ -52,7 +52,7 @@ This repository is built in phases; only what is checked below is implemented.
 - [x] Phase 3 — randomised Qiskit cross-validation
 - [x] Phase 4 — distributed MPI state layout
 - [x] Phase 5 — local and diagonal distributed gates
-- [ ] Phase 6 — global non-diagonal single-qubit gates
+- [x] Phase 6 — global non-diagonal single-qubit gates
 - [ ] Phase 7 — topology-aware distributed CNOT
 - [ ] Phase 8 — communication profiler
 - [ ] Phase 9 — gate-aware communication cost model

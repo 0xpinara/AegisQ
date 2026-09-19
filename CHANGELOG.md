@@ -37,3 +37,7 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   whole shard), `cz` in all four placements, and `cx` with a global control
   and a local target. Placements that still require an exchange raise a
   precise error instead of producing a wrong state.
+- Global non-diagonal single-qubit gates (`x`, `y`, `h`, `rx`, `ry`) through a
+  symmetric MPI_Sendrecv shard exchange with `rank ^ (1 << global_position)`,
+  a reused exchange buffer and chunking so element counts stay inside the
+  int-typed MPI interface.

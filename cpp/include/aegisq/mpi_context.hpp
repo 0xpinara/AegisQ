@@ -8,6 +8,7 @@
 /// single-rank world, which lets the distributed code paths be exercised
 /// (and unit tested) in a serial build.
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -16,6 +17,24 @@
 #endif
 
 namespace aegisq {
+
+#if AEGISQ_HAVE_MPI
+/// MPI datatype for a complex amplitude of a given real type.
+template <typename Real>
+struct MpiAmplitudeType;
+
+template <>
+struct MpiAmplitudeType<double> {
+    static MPI_Datatype value() { return MPI_C_DOUBLE_COMPLEX; }
+    static constexpr std::size_t bytes = 16;
+};
+
+template <>
+struct MpiAmplitudeType<float> {
+    static MPI_Datatype value() { return MPI_C_FLOAT_COMPLEX; }
+    static constexpr std::size_t bytes = 8;
+};
+#endif
 
 class MpiContext {
   public:

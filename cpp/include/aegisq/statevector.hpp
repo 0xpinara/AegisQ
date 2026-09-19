@@ -150,8 +150,17 @@ class DistributedStateVectorT {
   private:
     void check_operands(const Gate& gate) const;
 
-    /// Non-diagonal single-qubit gate on a global qubit (Phase 6).
+    /// Non-diagonal single-qubit gate on a global qubit: one pairwise exchange.
     void apply_global_single_qubit(const Gate& gate);
+
+    /// Lazily sized scratch buffer for incoming shards; reused across gates so
+    /// a deep circuit does not allocate once per global gate.
+    std::vector<Amplitude>& exchange_buffer(std::size_t count);
+
+    /// Symmetric shard exchange with `partner`, chunked to stay inside the
+    /// int-typed element counts of the MPI interface.
+    void exchange_with_partner(int partner, const Amplitude* send, Amplitude* receive,
+                               std::size_t count);
 
     /// CX whose target sits on a global position (Phase 7).
     void apply_cnot_global_target(int control, int target);
@@ -161,6 +170,7 @@ class DistributedStateVectorT {
 
     DistributedLayout layout_;
     std::vector<Amplitude> local_;
+    std::vector<Amplitude> exchange_;
     LocalMetrics metrics_{};
 };
 

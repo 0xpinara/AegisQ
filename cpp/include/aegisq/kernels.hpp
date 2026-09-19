@@ -181,6 +181,48 @@ void apply_swap(Amp* psi, std::size_t size, int a, int b) {
     }
 }
 
+/// Apply a 2x2 unitary whose two basis components live on different ranks.
+///
+/// `local` holds this rank's amplitudes and `remote` the partner's, both
+/// indexed by the same local index. `local_bit` is the value the gate's qubit
+/// takes on this rank (0 or 1), which selects the row of the matrix:
+///
+///     bit 0:  local[i] <- m00 * local[i] + m01 * remote[i]
+///     bit 1:  local[i] <- m10 * remote[i] + m11 * local[i]
+///
+/// The partner rank runs the same routine with the opposite bit, so between
+/// them they compute both rows. `remote` is a separate buffer, so no source
+/// value is overwritten before it is consumed.
+template <typename Amp>
+void apply_single_qubit_paired(Amp* local, const Amp* remote, std::size_t size, const Matrix2& m,
+                               int local_bit) {
+    using Real = typename Amp::value_type;
+    const std::size_t self_index = local_bit == 0 ? 0 : 3;
+    const std::size_t other_index = local_bit == 0 ? 1 : 2;
+    const auto self_coeff =
+        Amp(static_cast<Real>(m[self_index].real()), static_cast<Real>(m[self_index].imag()));
+    const auto other_coeff =
+        Amp(static_cast<Real>(m[other_index].real()), static_cast<Real>(m[other_index].imag()));
+
+#pragma omp parallel for schedule(static) if (size >= kParallelThreshold)
+    for (std::ptrdiff_t i = 0; i < static_cast<std::ptrdiff_t>(size); ++i) {
+        const std::size_t index = static_cast<std::size_t>(i);
+        local[index] = self_coeff * local[index] + other_coeff * remote[index];
+    }
+}
+
+/// Overwrite a contiguous run of local amplitudes with the partner's values.
+///
+/// Used where a gate permutes basis states across ranks (a global `X`, or the
+/// target half of a `CX`): the arithmetic is a copy, the cost is the transfer.
+template <typename Amp>
+void overwrite_from(Amp* local, const Amp* remote, std::size_t size) {
+#pragma omp parallel for schedule(static) if (size >= kParallelThreshold)
+    for (std::ptrdiff_t i = 0; i < static_cast<std::ptrdiff_t>(size); ++i) {
+        local[static_cast<std::size_t>(i)] = remote[static_cast<std::size_t>(i)];
+    }
+}
+
 /// Sum of |amplitude|^2 over the block.
 template <typename Amp>
 double squared_norm(const Amp* psi, std::size_t size) {
