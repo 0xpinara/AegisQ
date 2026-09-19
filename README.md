@@ -47,7 +47,7 @@ problem at the centre of this project.
 This repository is built in phases; only what is checked below is implemented.
 
 - [x] Phase 0 — project foundation, build system, CI, `aegisq doctor`
-- [ ] Phase 1 — NumPy reference simulator
+- [x] Phase 1 — NumPy reference simulator
 - [ ] Phase 2 — C++20 single-process state-vector engine
 - [ ] Phase 3 — randomised Qiskit cross-validation
 - [ ] Phase 4 — distributed MPI state layout
