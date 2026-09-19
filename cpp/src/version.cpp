@@ -6,9 +6,13 @@
 
 namespace aegisq {
 
-std::string version() { return AEGISQ_VERSION_STRING; }
+std::string version() {
+    return AEGISQ_VERSION_STRING;
+}
 
-std::string compiler() { return AEGISQ_COMPILER_STRING; }
+std::string compiler() {
+    return AEGISQ_COMPILER_STRING;
+}
 
 bool has_mpi() {
 #if AEGISQ_HAVE_MPI

@@ -193,5 +193,5 @@ def test_probability_distribution_sums_to_one():
 
 
 def test_unknown_backend_reports_available_ones():
-    with pytest.raises(ValueError, match="available: reference"):
+    with pytest.raises(ValueError, match="available: .*reference"):
         Simulator(backend="quantum-teapot")

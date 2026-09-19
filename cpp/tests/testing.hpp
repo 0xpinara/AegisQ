@@ -26,7 +26,9 @@ inline int summary(const char* suite) {
     return 1;
 }
 
-inline bool close(double a, double b, double tol) { return std::fabs(a - b) <= tol; }
+inline bool close(double a, double b, double tol) {
+    return std::fabs(a - b) <= tol;
+}
 
 inline bool close(std::complex<double> a, std::complex<double> b, double tol) {
     return std::abs(a - b) <= tol;
@@ -34,17 +36,16 @@ inline bool close(std::complex<double> a, std::complex<double> b, double tol) {
 
 }  // namespace aegisq::testing
 
-#define AEGISQ_CHECK(cond)                                                   \
-    do {                                                                     \
-        if (!(cond)) {                                                       \
-            ::aegisq::testing::report(__FILE__, __LINE__, "check: " #cond);  \
-        }                                                                    \
+#define AEGISQ_CHECK(cond)                                                  \
+    do {                                                                    \
+        if (!(cond)) {                                                      \
+            ::aegisq::testing::report(__FILE__, __LINE__, "check: " #cond); \
+        }                                                                   \
     } while (0)
 
-#define AEGISQ_CHECK_CLOSE(a, b, tol)                                             \
-    do {                                                                          \
-        if (!::aegisq::testing::close((a), (b), (tol))) {                         \
-            ::aegisq::testing::report(__FILE__, __LINE__,                         \
-                                      "not close: " #a " vs " #b);                \
-        }                                                                         \
+#define AEGISQ_CHECK_CLOSE(a, b, tol)                                                  \
+    do {                                                                               \
+        if (!::aegisq::testing::close((a), (b), (tol))) {                              \
+            ::aegisq::testing::report(__FILE__, __LINE__, "not close: " #a " vs " #b); \
+        }                                                                              \
     } while (0)

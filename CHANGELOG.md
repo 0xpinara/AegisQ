@@ -17,3 +17,8 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   communication cost model needs.
 - NumPy reference state-vector simulator with seeded, reproducible sampling.
 - `Simulator` front end with a backend registry and `SimulationResult`.
+- C++20 simulation core: templated state vector (fp64/fp32), paired-index
+  local kernels with OpenMP threading, gate/circuit containers and a
+  partition-independent shot sampler.
+- pybind11 bindings exposing `StateVectorF64`, `StateVectorF32`, `Gate` and
+  `Circuit`, plus the `cpp` simulator backend.

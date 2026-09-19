@@ -68,6 +68,10 @@ endif()
 # ---------------------------------------------------------------------------
 set(AEGISQ_SOURCES
     cpp/src/version.cpp
+    cpp/src/gates.cpp
+    cpp/src/circuit.cpp
+    cpp/src/statevector.cpp
+    cpp/src/measurement.cpp
 )
 
 add_library(aegisq_core STATIC ${AEGISQ_SOURCES})

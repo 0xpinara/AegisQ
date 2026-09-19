@@ -57,3 +57,31 @@ isolation, and each one is added by a separate project phase.
    wrapper, so reported communication volume is measured rather than modelled.
 3. Optional components (MPI, OpenMP, liboqs, Qiskit, CUDA) degrade gracefully:
    the package imports and `aegisq doctor` still runs without them.
+
+## Native core layout
+
+| File | Contents |
+|---|---|
+| `cpp/include/aegisq/gate.hpp` | opcode enum, gate struct, arity/diagonal/control metadata |
+| `cpp/include/aegisq/kernels.hpp` | templated local kernels shared by single-process and distributed execution |
+| `cpp/include/aegisq/statevector.hpp` | `StateVectorT<Real>`, instantiated for `double` and `float` |
+| `cpp/include/aegisq/measurement.hpp` | partition-independent shot sampler |
+| `cpp/src/bindings.cpp` | pybind11 surface |
+
+The kernels are templated on the amplitude type and addressed by *local*
+qubit index. The distributed runtime hands each rank its own shard and calls
+exactly these kernels for every gate that needs no communication, so the two
+execution modes share one arithmetic implementation.
+
+### Sampling is independent of the rank count
+
+`measure_all` draws `shots` uniform values in `[0, total_probability)` from a
+seeded MT19937-64, sorts them once, and then walks the local amplitudes
+accumulating probability mass; a rank claims only the draws inside its own
+interval. Because the draw sequence depends on `(shots, seed)` alone, the same
+circuit sampled on 1, 2 or 8 ranks yields identical counts.
+
+The reference (NumPy) backend uses `Generator.multinomial` and therefore
+produces a *different* — but equally reproducible — stream for the same seed.
+Counts are compared across backends statistically; state vectors are compared
+exactly.

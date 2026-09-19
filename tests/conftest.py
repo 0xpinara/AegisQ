@@ -42,6 +42,36 @@ def requires_liboqs():
     )
 
 
+def state_fidelity(a, b) -> float:
+    """|<a|b>|^2 for two normalised state vectors.
+
+    Fidelity is used instead of an elementwise comparison whenever a global
+    phase may differ — for example against Qiskit, or when a gate has been
+    decomposed into a phase-equivalent sequence.
+    """
+    import numpy as _np
+
+    a = _np.asarray(a, dtype=_np.complex128).ravel()
+    b = _np.asarray(b, dtype=_np.complex128).ravel()
+    if a.shape != b.shape:
+        raise ValueError(f"state shapes differ: {a.shape} vs {b.shape}")
+    overlap = _np.vdot(a, b)
+    return float(abs(overlap) ** 2 / (_np.vdot(a, a).real * _np.vdot(b, b).real))
+
+
+def align_global_phase(a, b):
+    """Rotate ``b`` so that its largest-magnitude component matches ``a``'s phase."""
+    import numpy as _np
+
+    a = _np.asarray(a, dtype=_np.complex128).ravel()
+    b = _np.asarray(b, dtype=_np.complex128).ravel()
+    pivot = int(_np.argmax(_np.abs(a)))
+    if abs(b[pivot]) < 1e-15:
+        return b
+    phase = (a[pivot] / abs(a[pivot])) / (b[pivot] / abs(b[pivot]))
+    return b * phase
+
+
 def random_circuit(
     num_qubits: int,
     depth: int,

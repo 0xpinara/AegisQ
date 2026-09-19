@@ -9,3 +9,5 @@ function(aegisq_add_cpp_test name)
 endfunction()
 
 aegisq_add_cpp_test(test_version)
+aegisq_add_cpp_test(test_gates)
+aegisq_add_cpp_test(test_statevector)
