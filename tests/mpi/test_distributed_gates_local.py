@@ -157,15 +157,25 @@ def test_custom_mapping_reproduces_the_same_state(geometry):
     assert_matches_reference(circuit, mapping=mapping)
 
 
-def test_unsupported_placements_report_the_missing_capability(geometry):
-    """Paths that still need a pairwise exchange must fail loudly, not silently.
+def test_every_placement_is_now_supported(geometry):
+    """No placement may fall back to an error path.
 
-    Updated as phases land: global single-qubit gates became available in
-    Phase 6, so the remaining gap is a CX whose *target* is global.
+    Earlier phases deliberately raised for placements that still needed a
+    pairwise exchange. With Phase 7 in place every combination runs, so this
+    test asserts the gap is closed rather than that it exists.
     """
     if geometry["p"] == 0:
         pytest.skip("single-rank world places every qubit locally")
     n = geometry["num_qubits"]
-    circuit = Circuit(n, name="needs-exchange").cx(geometry["local"][0], geometry["global"][0])
-    with pytest.raises(Exception, match="not implemented yet"):
-        run_distributed(circuit)
+    local, global_ = geometry["local"], geometry["global"]
+    circuit = Circuit(n, name="all-placements")
+    for q in range(n):
+        circuit.h(q)
+    circuit.cx(local[0], local[1])
+    circuit.cx(global_[0], local[0])
+    circuit.cx(local[0], global_[0])
+    circuit.swap(local[0], global_[0])
+    if len(global_) >= 2:
+        circuit.cx(global_[0], global_[1])
+        circuit.swap(global_[0], global_[1])
+    assert_matches_reference(circuit)

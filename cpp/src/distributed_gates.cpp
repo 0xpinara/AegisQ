@@ -316,15 +316,86 @@ void DistributedStateVectorT<Real>::apply_global_single_qubit(const Gate& gate) 
 }
 
 template <typename Real>
+void DistributedStateVectorT<Real>::exchange_full_shard(int partner) {
+    const std::size_t count = local_.size();
+    std::vector<Amplitude>& incoming = exchange_buffer(count);
+    exchange_with_partner(partner, local_.data(), incoming.data(), count);
+    kernels::overwrite_from(local_.data(), incoming.data(), count);
+}
+
+template <typename Real>
+void DistributedStateVectorT<Real>::exchange_half_shard(int partner, int bit, int value) {
+    const std::size_t count = local_.size();
+    const std::size_t half = kernels::packed_count(count, bit);
+
+    if (packed_.size() < half) {
+        packed_.resize(half);
+    }
+    std::vector<Amplitude>& incoming = exchange_buffer(half);
+
+    // Only the amplitudes selected by (bit, value) participate, so only those
+    // cross the network: half the shard instead of all of it.
+    kernels::pack_by_bit(local_.data(), packed_.data(), count, bit, value);
+    exchange_with_partner(partner, packed_.data(), incoming.data(), half);
+    kernels::unpack_by_bit(local_.data(), incoming.data(), count, bit, value);
+}
+
+template <typename Real>
 void DistributedStateVectorT<Real>::apply_cnot_global_target(int control, int target) {
-    throw std::runtime_error("CX with a global target is not implemented yet: cx q" +
-                             std::to_string(control) + ", q" + std::to_string(target));
+    const int partner = layout_.partner_rank_for_global_qubit(target);
+
+    if (layout_.is_local(control)) {
+        // Case C: control local, target global.
+        //
+        // A CX moves the amplitude at index x (control bit set) to
+        // x XOR target_bit. The target bit selects the rank, so those
+        // amplitudes swap with the *same* local index on the partner rank,
+        // while amplitudes with a clear control bit stay put. Both ranks hold
+        // control-set amplitudes, so the exchange is symmetric.
+        exchange_half_shard(partner, layout_.position(control), 1);
+        return;
+    }
+
+    // Case D: control global, target global.
+    //
+    // The control bit is fixed per rank. Ranks that do not satisfy it do
+    // nothing at all; the rest swap their entire shard with the partner,
+    // which also satisfies the control because the two global positions are
+    // different bits of the rank id.
+    if (layout_.global_bit(control) == 1) {
+        exchange_full_shard(partner);
+    }
 }
 
 template <typename Real>
 void DistributedStateVectorT<Real>::apply_swap_with_global(int a, int b) {
-    throw std::runtime_error("SWAP touching a global qubit is not implemented yet: swap q" +
-                             std::to_string(a) + ", q" + std::to_string(b));
+    const bool a_local = layout_.is_local(a);
+    const bool b_local = layout_.is_local(b);
+
+    if (!a_local && !b_local) {
+        // Both global: the swap permutes rank ids only. Ranks whose two bits
+        // agree are fixed points; the others exchange whole shards with the
+        // rank that has those two bits transposed.
+        const int bit_a = layout_.global_bit(a);
+        const int bit_b = layout_.global_bit(b);
+        if (bit_a == bit_b) {
+            return;
+        }
+        const int partner =
+            layout_.rank() ^ (1 << layout_.global_position(a)) ^ (1 << layout_.global_position(b));
+        exchange_full_shard(partner);
+        return;
+    }
+
+    // One local, one global: amplitudes with (global bit, local bit) = (0, 1)
+    // trade places with (1, 0). A rank therefore sends the half of its shard
+    // whose local bit is the opposite of its own global bit, and receives the
+    // partner's complementary half into those same slots.
+    const int global_qubit = a_local ? b : a;
+    const int local_qubit = a_local ? a : b;
+    const int selected_value = layout_.global_bit(global_qubit) == 0 ? 1 : 0;
+    const int partner = layout_.partner_rank_for_global_qubit(global_qubit);
+    exchange_half_shard(partner, layout_.position(local_qubit), selected_value);
 }
 
 template class DistributedStateVectorT<double>;

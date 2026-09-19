@@ -84,9 +84,52 @@ are exchanging with without any negotiation.
 rank 0. Initialisation therefore requires no communication: rank 0 writes a
 single amplitude, every other rank zeroes its shard.
 
+## How much data actually moves
+
+Not every communicating gate costs the same. With `S = 2^L` amplitudes per
+rank and `w` bytes per amplitude:
+
+| Gate and placement | Bytes sent per participating rank | Participating ranks |
+|---|---:|---|
+| `x`/`y`/`h`/`rx`/`ry` on a global qubit | `S·w` | all |
+| `cx` (local control, global target) | `S·w / 2` | all |
+| `cx` (global control, global target) | `S·w` | half (those with the control bit set) |
+| `swap` (local, global) | `S·w / 2` | all |
+| `swap` (global, global) | `S·w` | half (those whose two bits differ) |
+| everything in the zero-communication table above | 0 | none |
+
+The halved cases are not an approximation. In a `CX` with a local control, only
+the amplitudes whose control bit is set move; those amplitudes form contiguous
+runs of length `2^position(control)`, so they are packed into a contiguous
+buffer with a strided block copy, exchanged, and scattered back. (An MPI
+derived datatype could describe the same strided access without packing; an
+explicit pack was chosen because it keeps the measured byte count
+unambiguous.)
+
+### Why a global control is cheap
+
+A control qubit is only read. When it sits on a global position its value is a
+property of the rank id, so ranks that do not satisfy it skip the gate
+entirely and ranks that do satisfy it proceed with a purely local operation
+(`CX` with a local target) or a shard swap (`CX` with a global target). A
+*target* qubit, by contrast, is written, and writing a global bit means moving
+amplitudes.
+
+This asymmetry — controls are cheap globally, targets are expensive — is the
+structure the communication-aware mapper exploits.
+
+## Exchange protocol
+
+All pairwise traffic uses a symmetric `MPI_Sendrecv` between a rank and its
+partner, which cannot deadlock: both sides post the same call with the same
+counts. Incoming data lands in a separate buffer, so no amplitude is
+overwritten before it has been consumed. Buffers are allocated once and
+reused, and transfers are chunked at `2^28` elements because MPI element
+counts are `int`-typed.
+
 ## Status
 
-Implemented in this phase: layout arithmetic, allocation, reset, globally
-reduced norm and a test-only `gather`. Gate execution across ranks is added in
-the following phases, in order: local and diagonal gates, global non-diagonal
-single-qubit gates, then the four placement cases of `CX`.
+Implemented: layout arithmetic, allocation, reset, allreduced norm, test-only
+`gather`, and every gate in the supported set across all placements. The
+remaining phases add instrumentation (measured bytes and time), an analytical
+cost model, and the mapper that chooses the placement.

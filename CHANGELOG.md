@@ -41,3 +41,7 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   symmetric MPI_Sendrecv shard exchange with `rank ^ (1 << global_position)`,
   a reused exchange buffer and chunking so element counts stay inside the
   int-typed MPI interface.
+- Distributed CX in all four placement cases and SWAP with global operands.
+  Placements where only half the shard participates pack the selected
+  amplitudes into a contiguous buffer with a strided block copy, halving the
+  bytes on the wire relative to a whole-shard exchange.

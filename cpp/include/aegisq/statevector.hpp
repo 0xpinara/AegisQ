@@ -162,15 +162,23 @@ class DistributedStateVectorT {
     void exchange_with_partner(int partner, const Amplitude* send, Amplitude* receive,
                                std::size_t count);
 
-    /// CX whose target sits on a global position (Phase 7).
+    /// CX whose target sits on a global position.
     void apply_cnot_global_target(int control, int target);
 
-    /// SWAP touching at least one global position (Phase 7).
+    /// SWAP touching at least one global position.
     void apply_swap_with_global(int a, int b);
+
+    /// Exchange the half of the shard selected by `(bit, value)` with
+    /// `partner` and write the incoming half back into the same slots.
+    void exchange_half_shard(int partner, int bit, int value);
+
+    /// Exchange the whole shard with `partner` and adopt the incoming data.
+    void exchange_full_shard(int partner);
 
     DistributedLayout layout_;
     std::vector<Amplitude> local_;
     std::vector<Amplitude> exchange_;
+    std::vector<Amplitude> packed_;
     LocalMetrics metrics_{};
 };
 

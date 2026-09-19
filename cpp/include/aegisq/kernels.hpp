@@ -223,6 +223,53 @@ void overwrite_from(Amp* local, const Amp* remote, std::size_t size) {
     }
 }
 
+/// Copy the amplitudes whose `bit` equals `value` into a contiguous buffer.
+///
+/// The selected amplitudes form contiguous runs of length `2^bit`, so this is
+/// a strided block copy rather than an element-by-element gather. Packing
+/// halves the bytes on the wire for the gate placements where only half of a
+/// shard participates (a CX with a local control and a global target, or a
+/// SWAP mixing a local and a global qubit).
+template <typename Amp>
+void pack_by_bit(const Amp* src, Amp* dst, std::size_t size, int bit, int value) {
+    const std::size_t run = std::size_t{1} << bit;
+    const std::size_t blocks = size >> (bit + 1);
+    const std::size_t offset = value ? run : 0;
+
+#pragma omp parallel for schedule(static) if (size >= kParallelThreshold)
+    for (std::ptrdiff_t b = 0; b < static_cast<std::ptrdiff_t>(blocks); ++b) {
+        const std::size_t block = static_cast<std::size_t>(b);
+        const Amp* from = src + block * (run << 1) + offset;
+        Amp* to = dst + block * run;
+        for (std::size_t i = 0; i < run; ++i) {
+            to[i] = from[i];
+        }
+    }
+}
+
+/// Inverse of `pack_by_bit`: scatter a contiguous buffer back into the shard.
+template <typename Amp>
+void unpack_by_bit(Amp* dst, const Amp* src, std::size_t size, int bit, int value) {
+    const std::size_t run = std::size_t{1} << bit;
+    const std::size_t blocks = size >> (bit + 1);
+    const std::size_t offset = value ? run : 0;
+
+#pragma omp parallel for schedule(static) if (size >= kParallelThreshold)
+    for (std::ptrdiff_t b = 0; b < static_cast<std::ptrdiff_t>(blocks); ++b) {
+        const std::size_t block = static_cast<std::size_t>(b);
+        const Amp* from = src + block * run;
+        Amp* to = dst + block * (run << 1) + offset;
+        for (std::size_t i = 0; i < run; ++i) {
+            to[i] = from[i];
+        }
+    }
+}
+
+/// Number of amplitudes selected by `pack_by_bit` on a shard of `size`.
+inline std::size_t packed_count(std::size_t size, int /*bit*/) {
+    return size >> 1;
+}
+
 /// Sum of |amplitude|^2 over the block.
 template <typename Amp>
 double squared_norm(const Amp* psi, std::size_t size) {
