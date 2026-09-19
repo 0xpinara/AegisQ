@@ -9,8 +9,10 @@
 #include <vector>
 
 #include "aegisq/circuit.hpp"
+#include "aegisq/distributed_layout.hpp"
 #include "aegisq/gate.hpp"
 #include "aegisq/measurement.hpp"
+#include "aegisq/mpi_context.hpp"
 #include "aegisq/statevector.hpp"
 #include "aegisq/version.hpp"
 
@@ -81,6 +83,40 @@ void bind_statevector(py::module_& m, const char* name) {
         .def_property_readonly("compute_seconds",
                                [](const SV& self) { return self.metrics().compute_seconds; })
         .def("reset_metrics", &SV::reset_metrics);
+}
+
+/// Expose one precision of the distributed state vector.
+template <typename Real>
+void bind_distributed_statevector(py::module_& m, const char* name) {
+    using DSV = aegisq::DistributedStateVectorT<Real>;
+    py::class_<DSV>(m, name)
+        .def(py::init<int>(), py::arg("num_qubits"))
+        .def(py::init<int, std::vector<int>>(), py::arg("num_qubits"),
+             py::arg("logical_to_position"))
+        .def_property_readonly("num_qubits", &DSV::num_qubits)
+        .def_property_readonly("rank", &DSV::rank)
+        .def_property_readonly("world_size", &DSV::world_size)
+        .def_property_readonly("local_size", &DSV::local_size)
+        .def_property_readonly("layout", &DSV::layout, py::return_value_policy::reference_internal)
+        .def("reset", &DSV::reset)
+        .def("norm", &DSV::norm)
+        .def("local_squared_norm", &DSV::local_squared_norm)
+        .def("gather",
+             [](const DSV& self) {
+                 const std::vector<std::complex<double>> full = self.gather();
+                 return py::array_t<std::complex<double>>(static_cast<py::ssize_t>(full.size()),
+                                                          full.data());
+             })
+        .def("local_amplitudes",
+             [](const DSV& self) {
+                 return py::array_t<std::complex<Real>>(static_cast<py::ssize_t>(self.local_size()),
+                                                        self.local_amplitudes().data());
+             })
+        .def_property_readonly("gates_applied",
+                               [](const DSV& self) { return self.metrics().gates_applied; })
+        .def_property_readonly("compute_seconds",
+                               [](const DSV& self) { return self.metrics().compute_seconds; })
+        .def("reset_metrics", &DSV::reset_metrics);
 }
 
 }  // namespace
@@ -160,6 +196,66 @@ PYBIND11_MODULE(_aegisq_core, m) {
         .def("__len__", &aegisq::Circuit::size)
         .def("__repr__", &aegisq::Circuit::to_string);
 
+    // ---- MPI -------------------------------------------------------------
+    m.def("mpi_compiled", &aegisq::MpiContext::compiled_with_mpi,
+          "True when the core was built against MPI.");
+    m.def(
+        "mpi_rank", []() { return aegisq::MpiContext::instance().rank(); },
+        "Rank of this process (initialises MPI on first call).");
+    m.def(
+        "mpi_world_size", []() { return aegisq::MpiContext::instance().world_size(); },
+        "Number of ranks in the world communicator.");
+    m.def(
+        "mpi_barrier", []() { aegisq::MpiContext::instance().barrier(); },
+        "Synchronise all ranks.");
+    m.def("mpi_library_version", &aegisq::MpiContext::library_version);
+    m.def("mpi_finalize", &aegisq::MpiContext::finalize,
+          "Shut MPI down; idempotent and also registered with atexit.");
+
+    m.def("is_power_of_two", &aegisq::is_power_of_two, py::arg("value"));
+    m.def("log2_exact", &aegisq::log2_exact, py::arg("value"));
+
+    py::class_<aegisq::DistributedLayout>(m, "DistributedLayout")
+        .def(py::init<int, int, int>(), py::arg("num_qubits"), py::arg("world_size"),
+             py::arg("rank"))
+        .def(py::init<int, int, int, std::vector<int>>(), py::arg("num_qubits"),
+             py::arg("world_size"), py::arg("rank"), py::arg("logical_to_position"))
+        .def_property_readonly("num_qubits", &aegisq::DistributedLayout::num_qubits)
+        .def_property_readonly("world_size", &aegisq::DistributedLayout::world_size)
+        .def_property_readonly("rank", &aegisq::DistributedLayout::rank)
+        .def_property_readonly("num_global_qubits", &aegisq::DistributedLayout::num_global_qubits)
+        .def_property_readonly("num_local_qubits", &aegisq::DistributedLayout::num_local_qubits)
+        .def_property_readonly("local_state_size", &aegisq::DistributedLayout::local_state_size)
+        .def("local_state_bytes", &aegisq::DistributedLayout::local_state_bytes,
+             py::arg("amplitude_bytes"))
+        .def("position", &aegisq::DistributedLayout::position, py::arg("logical_qubit"))
+        .def("is_local", &aegisq::DistributedLayout::is_local, py::arg("logical_qubit"))
+        .def("is_global", &aegisq::DistributedLayout::is_global, py::arg("logical_qubit"))
+        .def("global_position", &aegisq::DistributedLayout::global_position,
+             py::arg("logical_qubit"))
+        .def("global_bit_for_rank", &aegisq::DistributedLayout::global_bit_for_rank,
+             py::arg("logical_qubit"), py::arg("rank"))
+        .def("global_bit", &aegisq::DistributedLayout::global_bit, py::arg("logical_qubit"))
+        .def("partner_rank_for_global_qubit",
+             &aegisq::DistributedLayout::partner_rank_for_global_qubit, py::arg("logical_qubit"))
+        .def("partner_rank_of", &aegisq::DistributedLayout::partner_rank_of,
+             py::arg("logical_qubit"), py::arg("rank"))
+        .def("local_qubits", &aegisq::DistributedLayout::local_qubits)
+        .def("global_qubits", &aegisq::DistributedLayout::global_qubits)
+        .def_property_readonly("logical_to_position",
+                               &aegisq::DistributedLayout::logical_to_position)
+        .def("is_identity_mapping", &aegisq::DistributedLayout::is_identity_mapping)
+        .def("physical_index", &aegisq::DistributedLayout::physical_index, py::arg("local_index"))
+        .def("physical_index_for_rank", &aegisq::DistributedLayout::physical_index_for_rank,
+             py::arg("rank"), py::arg("local_index"))
+        .def("to_logical_index", &aegisq::DistributedLayout::to_logical_index,
+             py::arg("physical_index"))
+        .def("to_physical_index", &aegisq::DistributedLayout::to_physical_index,
+             py::arg("logical_index"))
+        .def("__repr__", &aegisq::DistributedLayout::to_string);
+
     bind_statevector<double>(m, "StateVectorF64");
     bind_statevector<float>(m, "StateVectorF32");
+    bind_distributed_statevector<double>(m, "DistributedStateVectorF64");
+    bind_distributed_statevector<float>(m, "DistributedStateVectorF32");
 }

@@ -72,6 +72,9 @@ set(AEGISQ_SOURCES
     cpp/src/circuit.cpp
     cpp/src/statevector.cpp
     cpp/src/measurement.cpp
+    cpp/src/mpi_context.cpp
+    cpp/src/distributed_layout.cpp
+    cpp/src/distributed_gates.cpp
 )
 
 add_library(aegisq_core STATIC ${AEGISQ_SOURCES})

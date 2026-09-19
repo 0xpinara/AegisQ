@@ -25,3 +25,10 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
 - Randomised cross-validation against Qiskit as an external oracle: 100 seeded
   circuits per run plus a slower 9-qubit, depth-30 sweep, covering both the
   reference and native backends.
+- Distributed MPI layout: `DistributedLayout` with an explicit
+  logical-qubit-to-physical-position permutation, partner-rank arithmetic and
+  physical/logical index translation.
+- `DistributedStateVectorT<Real>` with rank-local shards, allreduced norm and
+  a test-only `gather`, plus lazy MPI initialisation so `import aegisq` never
+  starts a communicator on its own.
+- MPI test suite launched by `scripts/run_mpi_tests.sh` at 1, 2 and 4 ranks.
