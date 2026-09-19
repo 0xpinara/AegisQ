@@ -1,0 +1,52 @@
+# --- Build artifacts -------------------------------------------------------
+build/
+_skbuild/
+dist/
+*.egg-info/
+*.so
+*.dylib
+*.o
+*.a
+compile_commands.json
+CMakeUserPresets.json
+
+# --- Python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Secret key material (never commit) ------------------------------------
+*.secret
+*.sk
+*.secret.key
+*_secret.json
+keys/
+!keys/.gitkeep
+**/private/
+
+# --- Generated job / result bundles ----------------------------------------
+*.aqjob
+*.aqresult
+replay_db.json
+
+# --- Editors / OS ----------------------------------------------------------
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# --- LaTeX -----------------------------------------------------------------
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.bbl
+paper/*.blg
+paper/*.synctex.gz
+paper/*.pdf
+!paper/main.pdf

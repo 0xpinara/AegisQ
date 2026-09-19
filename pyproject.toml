@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aegisq"
+version = "0.1.0"
+description = "Post-quantum secure, communication-aware distributed quantum circuit simulation for HPC clusters"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Pinar Aksoy" }]
+keywords = [
+    "quantum-simulation",
+    "high-performance-computing",
+    "mpi",
+    "post-quantum-cryptography",
+    "distributed-systems",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Security :: Cryptography",
+    "Topic :: System :: Distributed Computing",
+]
+dependencies = [
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+crypto = ["liboqs-python>=0.13", "cryptography>=42"]
+benchmark = ["pandas>=2.0", "matplotlib>=3.8"]
+validation = ["qiskit>=1.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-timeout>=2.2",
+    "pybind11>=2.12",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+aegisq = "aegisq.cli.main:main"
+
+[project.urls]
+Homepage = "https://github.com/0xpinara/AegisQ-HPC"
+Documentation = "https://github.com/0xpinara/AegisQ-HPC/tree/main/docs"
+
+[tool.setuptools.packages.find]
+include = ["aegisq*"]
+
+[tool.setuptools.package-data]
+aegisq = ["*.so", "*.pyd", "*.dylib"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: long-running tests excluded from the default developer loop",
+    "mpi: requires an MPI launcher and is executed through scripts/run_mpi_tests.sh",
+    "gpu: requires a CUDA-capable device",
+    "crypto: requires liboqs-python",
+    "qiskit: requires Qiskit as an external reference implementation",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]

@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+title: "AegisQ-HPC: Communication-Aware Distributed Quantum Simulation with Post-Quantum Secure Job Provenance"
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - family-names: Aksoy
+    given-names: Pinar
+version: 0.1.0
+license: MIT
+repository-code: "https://github.com/0xpinara/AegisQ-HPC"
+abstract: >-
+  AegisQ-HPC is a research prototype distributed quantum state-vector
+  simulator. It partitions the state vector across MPI ranks, selects a
+  communication-aware qubit-to-rank mapping, instruments all distributed data
+  movement, and protects job submission and result provenance with the
+  NIST-standardised post-quantum primitives ML-KEM and ML-DSA.
+keywords:
+  - quantum simulation
+  - high performance computing
+  - MPI
+  - post-quantum cryptography
+  - reproducible benchmarking

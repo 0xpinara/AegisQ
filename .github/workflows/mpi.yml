@@ -1,0 +1,41 @@
+name: mpi
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  distributed-correctness:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        mpi: [openmpi, mpich]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ${{ matrix.mpi }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libomp-dev
+          if [ "${{ matrix.mpi }}" = "openmpi" ]; then
+            sudo apt-get install -y libopenmpi-dev openmpi-bin
+          else
+            sudo apt-get install -y libmpich-dev mpich
+          fi
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,crypto]"
+      - name: Build native core
+        run: ./scripts/build.sh
+      - name: Distributed tests (2 and 4 ranks)
+        env:
+          MPI_RANKS: "2,4"
+          OMPI_ALLOW_RUN_AS_ROOT: "1"
+          OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: "1"
+        run: ./scripts/run_mpi_tests.sh

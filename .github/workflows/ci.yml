@@ -1,0 +1,58 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check aegisq tests scripts
+      - run: ruff format --check aegisq tests
+      - name: clang-format
+        run: |
+          sudo apt-get update && sudo apt-get install -y clang-format
+          clang-format --dry-run --Werror \
+            cpp/src/*.cpp cpp/include/aegisq/*.hpp cpp/tests/*.cpp cpp/tests/*.hpp
+
+  build-and-test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libopenmpi-dev openmpi-bin libomp-dev
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,crypto,benchmark,validation]"
+      - name: Build native core
+        run: ./scripts/build.sh
+      - name: C++ unit tests
+        run: ctest --test-dir build --output-on-failure
+      - name: Python tests
+        run: python -m pytest tests -m "not slow and not mpi and not gpu" -q
+      - name: CLI smoke test
+        run: |
+          aegisq --version
+          aegisq doctor
