@@ -30,8 +30,17 @@ pytestmark = pytest.mark.mpi
 
 @pytest.fixture
 def chunk_limit():
-    """Restore the process-wide limit however the test ends."""
+    """Restore the process-wide limit however the test ends.
+
+    The skip belongs here rather than in each test: the fixture is what
+    assumes a native core exists. One test in this file took `chunk_limit`
+    without also taking `geometry`, and so was the only one that reached a
+    `None` core and raised `AttributeError` instead of skipping on a build
+    without the extension.
+    """
     core = native_core()
+    if core is None:
+        pytest.skip("native core is not built")
     original = core.max_exchange_elements()
     yield core.set_max_exchange_elements
     core.set_max_exchange_elements(original)

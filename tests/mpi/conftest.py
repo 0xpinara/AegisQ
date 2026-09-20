@@ -16,10 +16,39 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "mpi: launched through scripts/run_mpi_tests.sh")
 
 
+#: Set by every MPI launcher we support. Their presence means somebody
+#: deliberately started this process through `mpirun`.
+_LAUNCHER_VARS = ("OMPI_COMM_WORLD_SIZE", "PMI_SIZE", "MPI_LOCALNRANKS", "SLURM_NTASKS")
+
+
+def _launched_by_mpi() -> bool:
+    import os
+
+    return any(name in os.environ for name in _LAUNCHER_VARS)
+
+
+def _require_mpi_core() -> None:
+    """Skip on a plain build; fail when MPI was actually asked for.
+
+    Skipping is the honest outcome when someone runs `pytest tests/mpi`
+    on a core built without MPI -- there is nothing to test. Under a
+    launcher it is the opposite of honest: the whole suite skips, the
+    script exits zero, and a build with no distributed support at all
+    reports the same result as one that passed every test. That happened
+    here with an interpreter whose version did not match the compiled
+    extension, and 166 silent skips looked exactly like success.
+    """
+    if distributed.mpi_compiled():
+        return
+    message = "native core built without MPI"
+    if _launched_by_mpi():
+        pytest.fail(f"{message}, but this process was launched by an MPI launcher")
+    pytest.skip(message)
+
+
 @pytest.fixture(scope="session")
 def mpi_world() -> int:
-    if not distributed.mpi_compiled():
-        pytest.skip("native core built without MPI")
+    _require_mpi_core()
     return distributed.world_size()
 
 
@@ -61,6 +90,5 @@ def assert_matches_reference(circuit, mapping=None, precision: str = "fp64", ato
 
 @pytest.fixture(scope="session")
 def mpi_rank() -> int:
-    if not distributed.mpi_compiled():
-        pytest.skip("native core built without MPI")
+    _require_mpi_core()
     return distributed.rank()
