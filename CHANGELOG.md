@@ -73,3 +73,7 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   for the same seed.
 - `aegisq run`, which partitions automatically under mpirun and can apply a
   communication-aware placement with `--optimize`.
+- `aegisq estimate`: state size, per-rank shard and the *peak* working set
+  including the exchange and packing buffers the runtime allocates, compared
+  against this host's RAM.
+- `aegisq doctor` additionally reports the MPI library string from the core.

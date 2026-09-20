@@ -207,6 +207,50 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_estimate(args: argparse.Namespace) -> int:
+    """Report the memory a distributed state vector would occupy."""
+    import json
+
+    from aegisq.runtime.hardware import format_bytes, memory_estimate
+
+    try:
+        estimate = memory_estimate(args.qubits, args.ranks, args.precision)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
+
+    if args.json:
+        print(json.dumps(estimate, indent=2, sort_keys=True))
+        return 0
+
+    print(
+        f"State vector: {args.qubits} qubits, {args.precision} "
+        f"({estimate['amplitude_bytes']} bytes per amplitude)"
+    )
+    print()
+    print(f"  total amplitudes:      {estimate['total_amplitudes']:,}")
+    print(f"  total state memory:    {format_bytes(estimate['total_bytes'])}")
+    print(f"  ranks:                 {estimate['ranks']}")
+    print(f"  local qubits:          {estimate['local_qubits']}")
+    print(f"  global qubits:         {estimate['global_qubits']}")
+    print(f"  amplitudes per rank:   {estimate['amplitudes_per_rank']:,}")
+    print(f"  state memory per rank: {format_bytes(estimate['bytes_per_rank'])}")
+    print()
+    print("  Peak working set per rank, including the buffers the runtime")
+    print("  allocates for pairwise exchanges:")
+    print(f"    incoming shard buffer: {format_bytes(estimate['exchange_buffer_bytes'])}")
+    print(f"    packing buffer:        {format_bytes(estimate['packing_buffer_bytes'])}")
+    print(f"    peak per rank:         {format_bytes(estimate['peak_bytes_per_rank'])}")
+
+    if estimate["system_memory_bytes"] is not None:
+        print()
+        print(
+            f"  this host has {format_bytes(estimate['system_memory_bytes'])} of RAM; "
+            f"all {estimate['ranks']} rank(s) on one node would "
+            f"{'fit' if estimate['fits_on_this_host'] else 'NOT fit'}"
+        )
+    return 0
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     """Report what the local machine can and cannot do."""
     from aegisq.runtime import hardware
@@ -296,6 +340,16 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--option", action="append", metavar="KEY=VALUE", help="extra family option")
     run.add_argument("--json", action="store_true", help="emit machine-readable output")
     run.set_defaults(func=_cmd_run)
+
+    estimate = subparsers.add_parser(
+        "estimate",
+        help="report the memory a distributed state vector would need",
+    )
+    estimate.add_argument("--qubits", type=int, required=True)
+    estimate.add_argument("--ranks", type=int, default=1, help="MPI world size (power of two)")
+    estimate.add_argument("--precision", choices=("fp64", "fp32"), default="fp64")
+    estimate.add_argument("--json", action="store_true")
+    estimate.set_defaults(func=_cmd_estimate)
 
     optimize = subparsers.add_parser(
         "optimize",

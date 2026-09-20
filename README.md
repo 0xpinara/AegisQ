@@ -59,7 +59,7 @@ This repository is built in phases; only what is checked below is implemented.
 - [x] Phase 10 — static communication-aware mapper
 - [ ] Phase 11 — mapper evaluation on measured hardware
 - [x] Phase 12 — OpenQASM subset front end
-- [ ] Phase 13 — memory estimator
+- [x] Phase 13 — memory estimator
 - [ ] Phase 14 — post-quantum identities (ML-KEM-768 / ML-DSA-65)
 - [ ] Phase 15 — secure job envelopes
 - [ ] Phase 16 — verified job execution and replay protection
@@ -109,6 +109,9 @@ mpirun -np 8 aegisq run qft --qubits 24 --shots 1024 --optimize
 
 # what would a placement cost?
 aegisq optimize random --qubits 20 --ranks 8 --option seed=3
+
+# will it fit?
+aegisq estimate --qubits 30 --ranks 4 --precision fp64
 ```
 
 Circuit input is a **documented subset** of OpenQASM (single register, the

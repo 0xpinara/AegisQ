@@ -106,6 +106,10 @@ def mpi_info() -> Component:
         if raw:
             version_line = raw.splitlines()[0].strip()
 
+    # MPI_Get_library_version may be called before MPI_Init, so this does not
+    # start a communicator just to answer a diagnostic question.
+    library = core.mpi_library_version() if core is not None and core_mpi else None
+
     available = core_mpi and launcher is not None
     if launcher is None:
         detail = "no launcher found (mpirun/mpiexec/srun)"
@@ -117,7 +121,12 @@ def mpi_info() -> Component:
         "MPI",
         available,
         detail,
-        {"launcher": launcher, "version": version_line, "core_mpi": core_mpi},
+        {
+            "launcher": launcher,
+            "version": version_line,
+            "core_mpi": core_mpi,
+            "library": library,
+        },
     )
 
 
@@ -196,6 +205,86 @@ def compiler_info() -> Component:
     if core is None:
         return Component("C++ compiler", False, "native core not built")
     return Component("C++ compiler", True, core.compiler(), {"compiler": core.compiler()})
+
+
+def system_memory_bytes() -> int | None:
+    """Physical RAM of this machine, or None when it cannot be determined."""
+    if sys.platform == "darwin":
+        raw = _run(["sysctl", "-n", "hw.memsize"])
+        return int(raw) if raw and raw.isdigit() else None
+    if sys.platform.startswith("linux"):
+        try:
+            with open("/proc/meminfo", encoding="utf-8") as handle:
+                for line in handle:
+                    if line.startswith("MemTotal:"):
+                        return int(line.split()[1]) * 1024
+        except (OSError, ValueError):
+            return None
+    return None
+
+
+#: Bytes per complex amplitude, by precision.
+AMPLITUDE_BYTES = {"fp64": 16, "fp32": 8}
+
+
+def memory_estimate(num_qubits: int, ranks: int = 1, precision: str = "fp64") -> dict[str, Any]:
+    """Memory a distributed state vector will occupy.
+
+    This is arithmetic, not a measurement, and it is reported as such. The
+    peak figure matters more than the shard size: the runtime also holds an
+    incoming-shard buffer (up to one shard) and a packing buffer (up to half a
+    shard) for the gate placements that exchange data, so a rank's working set
+    can reach 2.5x the shard itself.
+    """
+    if num_qubits < 1:
+        raise ValueError("num_qubits must be at least 1")
+    if ranks < 1 or ranks & (ranks - 1):
+        raise ValueError(f"rank count must be a power of two, got {ranks}")
+    if precision not in AMPLITUDE_BYTES:
+        raise ValueError(f"unknown precision {precision!r}; use 'fp64' or 'fp32'")
+
+    global_qubits = ranks.bit_length() - 1
+    local_qubits = num_qubits - global_qubits
+    if local_qubits < 1:
+        raise ValueError(
+            f"{num_qubits} qubits over {ranks} ranks leaves no local qubits; "
+            f"use at most {2 ** (num_qubits - 1)} ranks"
+        )
+
+    amplitude_bytes = AMPLITUDE_BYTES[precision]
+    total_amplitudes = 1 << num_qubits
+    shard_amplitudes = 1 << local_qubits
+    shard_bytes = shard_amplitudes * amplitude_bytes
+
+    system_memory = system_memory_bytes()
+    peak_per_rank = shard_bytes * 5 // 2
+
+    return {
+        "num_qubits": num_qubits,
+        "ranks": ranks,
+        "precision": precision,
+        "amplitude_bytes": amplitude_bytes,
+        "local_qubits": local_qubits,
+        "global_qubits": global_qubits,
+        "total_amplitudes": total_amplitudes,
+        "total_bytes": total_amplitudes * amplitude_bytes,
+        "amplitudes_per_rank": shard_amplitudes,
+        "bytes_per_rank": shard_bytes,
+        "peak_bytes_per_rank": peak_per_rank,
+        "exchange_buffer_bytes": shard_bytes,
+        "packing_buffer_bytes": shard_bytes // 2,
+        "system_memory_bytes": system_memory,
+        "fits_on_this_host": (
+            None if system_memory is None else peak_per_rank * ranks <= system_memory
+        ),
+    }
+
+
+def format_bytes(value: int) -> str:
+    for unit, scale in (("TiB", 2**40), ("GiB", 2**30), ("MiB", 2**20), ("KiB", 2**10)):
+        if value >= scale:
+            return f"{value / scale:.2f} {unit}"
+    return f"{value} B"
 
 
 def collect() -> list[Component]:
