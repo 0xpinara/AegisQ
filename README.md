@@ -54,7 +54,7 @@ This repository is built in phases; only what is checked below is implemented.
 - [x] Phase 5 — local and diagonal distributed gates
 - [x] Phase 6 — global non-diagonal single-qubit gates
 - [x] Phase 7 — topology-aware distributed CNOT
-- [ ] Phase 8 — communication profiler
+- [x] Phase 8 — communication profiler
 - [ ] Phase 9 — gate-aware communication cost model
 - [ ] Phase 10 — static communication-aware mapper
 - [ ] Phase 11 — mapper evaluation on measured hardware

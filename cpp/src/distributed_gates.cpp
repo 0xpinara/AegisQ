@@ -5,6 +5,7 @@
 /// gate alone.
 
 #include <algorithm>
+#include <chrono>
 #include <stdexcept>
 
 #include "aegisq/kernels.hpp"
@@ -33,7 +34,7 @@ void DistributedStateVectorT<Real>::reset() {
     if (layout_.rank() == 0) {
         local_[0] = Amplitude{1, 0};
     }
-    metrics_ = LocalMetrics{};
+    profiler_.reset();
 }
 
 template <typename Real>
@@ -46,9 +47,14 @@ double DistributedStateVectorT<Real>::norm() const {
     double local_total = local_squared_norm();
 #if AEGISQ_HAVE_MPI
     if (layout_.world_size() > 1) {
+        const auto started = std::chrono::steady_clock::now();
         double global_total = 0.0;
         MPI_Allreduce(&local_total, &global_total, 1, MPI_DOUBLE, MPI_SUM,
                       MpiContext::instance().comm());
+        const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - started;
+        // `norm` is logically const but the profiler is a measurement sink.
+        const_cast<CommunicationProfiler&>(profiler_).record_collective("allreduce",
+                                                                        elapsed.count());
         return global_total;
     }
 #endif
@@ -69,9 +75,13 @@ std::vector<std::complex<double>> DistributedStateVectorT<Real>::gather() const 
 
 #if AEGISQ_HAVE_MPI
     if (layout_.world_size() > 1) {
+        const auto started = std::chrono::steady_clock::now();
         MPI_Allgather(local_as_double.data(), static_cast<int>(local_size), MPI_C_DOUBLE_COMPLEX,
                       physical.data(), static_cast<int>(local_size), MPI_C_DOUBLE_COMPLEX,
                       MpiContext::instance().comm());
+        const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - started;
+        const_cast<CommunicationProfiler&>(profiler_).record_collective("allgather",
+                                                                        elapsed.count());
     } else {
         physical = local_as_double;
     }
@@ -113,6 +123,10 @@ void DistributedStateVectorT<Real>::check_operands(const Gate& gate) const {
 template <typename Real>
 void DistributedStateVectorT<Real>::apply_gate(const Gate& gate) {
     check_operands(gate);
+
+    current_opcode_ = gate.opcode;
+    current_gate_communicated_ = false;
+    const auto gate_started = std::chrono::steady_clock::now();
 
     Amplitude* psi = local_.data();
     const std::size_t n = local_.size();
@@ -197,7 +211,10 @@ void DistributedStateVectorT<Real>::apply_gate(const Gate& gate) {
             break;
         }
     }
-    ++metrics_.gates_applied;
+
+    const std::chrono::duration<double> gate_elapsed =
+        std::chrono::steady_clock::now() - gate_started;
+    profiler_.record_gate(gate.opcode, gate_elapsed.count(), current_gate_communicated_);
 }
 
 template <typename Real>
@@ -275,6 +292,7 @@ template <typename Real>
 void DistributedStateVectorT<Real>::exchange_with_partner(int partner, const Amplitude* send,
                                                           Amplitude* receive, std::size_t count) {
 #if AEGISQ_HAVE_MPI
+    const auto started = std::chrono::steady_clock::now();
     // MPI element counts are int-typed. Shards larger than that are split into
     // chunks rather than silently overflowing.
     constexpr std::size_t kMaxChunk = 1ULL << 28;
@@ -290,6 +308,11 @@ void DistributedStateVectorT<Real>::exchange_with_partner(int partner, const Amp
         }
         offset += chunk;
     }
+
+    const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - started;
+    const std::size_t bytes = count * MpiAmplitudeType<Real>::bytes;
+    profiler_.record_exchange(current_opcode_, bytes, bytes, elapsed.count());
+    current_gate_communicated_ = true;
 #else
     (void)partner;
     (void)send;
@@ -396,6 +419,40 @@ void DistributedStateVectorT<Real>::apply_swap_with_global(int a, int b) {
     const int selected_value = layout_.global_bit(global_qubit) == 0 ? 1 : 0;
     const int partner = layout_.partner_rank_for_global_qubit(global_qubit);
     exchange_half_shard(partner, layout_.position(local_qubit), selected_value);
+}
+
+template <typename Real>
+CommunicationMetrics DistributedStateVectorT<Real>::reduced_metrics() const {
+    CommunicationMetrics reduced = profiler_.metrics();
+#if AEGISQ_HAVE_MPI
+    if (layout_.world_size() > 1) {
+        std::uint64_t counters[9] = {
+            reduced.send_calls,      reduced.receive_calls,  reduced.pairwise_exchanges,
+            reduced.bytes_sent,      reduced.bytes_received, reduced.allreduce_calls,
+            reduced.allgather_calls, reduced.barrier_calls,  reduced.communicating_gates};
+        std::uint64_t summed[9] = {0};
+        MPI_Allreduce(counters, summed, 9, MPI_UINT64_T, MPI_SUM, MpiContext::instance().comm());
+
+        double times[3] = {reduced.communication_seconds, reduced.compute_seconds,
+                           reduced.total_seconds};
+        double slowest[3] = {0.0, 0.0, 0.0};
+        MPI_Allreduce(times, slowest, 3, MPI_DOUBLE, MPI_MAX, MpiContext::instance().comm());
+
+        reduced.send_calls = summed[0];
+        reduced.receive_calls = summed[1];
+        reduced.pairwise_exchanges = summed[2];
+        reduced.bytes_sent = summed[3];
+        reduced.bytes_received = summed[4];
+        reduced.allreduce_calls = summed[5];
+        reduced.allgather_calls = summed[6];
+        reduced.barrier_calls = summed[7];
+        reduced.communicating_gates = summed[8];
+        reduced.communication_seconds = slowest[0];
+        reduced.compute_seconds = slowest[1];
+        reduced.total_seconds = slowest[2];
+    }
+#endif
+    return reduced;
 }
 
 template class DistributedStateVectorT<double>;

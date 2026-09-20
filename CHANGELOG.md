@@ -45,3 +45,8 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   Placements where only half the shard participates pack the selected
   amplitudes into a contiguous buffer with a strided block copy, halving the
   bytes on the wire relative to a whole-shard exchange.
+- `CommunicationProfiler`: every project-controlled MPI transfer is timed and
+  counted (sends, receives, pairwise exchanges, bytes each way, collectives),
+  with a per-opcode breakdown and a world-reduced view that sums byte counts
+  and maximises times. Byte counts are pinned to closed-form expectations in
+  the MPI suite.

@@ -74,6 +74,7 @@ set(AEGISQ_SOURCES
     cpp/src/measurement.cpp
     cpp/src/mpi_context.cpp
     cpp/src/distributed_layout.cpp
+    cpp/src/communication_profiler.cpp
     cpp/src/distributed_gates.cpp
 )
 

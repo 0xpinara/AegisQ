@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "aegisq/circuit.hpp"
+#include "aegisq/communication_profiler.hpp"
 #include "aegisq/distributed_layout.hpp"
 #include "aegisq/gate.hpp"
 #include "aegisq/measurement.hpp"
@@ -85,6 +86,37 @@ void bind_statevector(py::module_& m, const char* name) {
         .def("reset_metrics", &SV::reset_metrics);
 }
 
+/// Convert measured communication counters into a plain Python dict.
+py::dict metrics_to_dict(const aegisq::CommunicationMetrics& m) {
+    py::dict out;
+    out["send_calls"] = m.send_calls;
+    out["receive_calls"] = m.receive_calls;
+    out["pairwise_exchanges"] = m.pairwise_exchanges;
+    out["bytes_sent"] = m.bytes_sent;
+    out["bytes_received"] = m.bytes_received;
+    out["allreduce_calls"] = m.allreduce_calls;
+    out["allgather_calls"] = m.allgather_calls;
+    out["barrier_calls"] = m.barrier_calls;
+    out["communication_seconds"] = m.communication_seconds;
+    out["compute_seconds"] = m.compute_seconds;
+    out["total_seconds"] = m.total_seconds;
+    out["gates_applied"] = m.gates_applied;
+    out["communicating_gates"] = m.communicating_gates;
+
+    py::dict per_opcode;
+    for (const auto& [opcode, stats] : m.per_opcode) {
+        py::dict entry;
+        entry["gates"] = stats.gates;
+        entry["exchanges"] = stats.exchanges;
+        entry["bytes_sent"] = stats.bytes_sent;
+        entry["bytes_received"] = stats.bytes_received;
+        entry["communication_seconds"] = stats.communication_seconds;
+        per_opcode[py::str(opcode)] = entry;
+    }
+    out["per_opcode"] = per_opcode;
+    return out;
+}
+
 /// Expose one precision of the distributed state vector.
 template <typename Real>
 void bind_distributed_statevector(py::module_& m, const char* name) {
@@ -130,6 +162,13 @@ void bind_distributed_statevector(py::module_& m, const char* name) {
                                [](const DSV& self) { return self.metrics().gates_applied; })
         .def_property_readonly("compute_seconds",
                                [](const DSV& self) { return self.metrics().compute_seconds; })
+        .def(
+            "metrics", [](const DSV& self) { return metrics_to_dict(self.metrics()); },
+            "Communication and timing counters measured on this rank.")
+        .def(
+            "reduced_metrics",
+            [](const DSV& self) { return metrics_to_dict(self.reduced_metrics()); },
+            "Counters summed (bytes/calls) or maximised (times) over all ranks.")
         .def("reset_metrics", &DSV::reset_metrics);
 }
 

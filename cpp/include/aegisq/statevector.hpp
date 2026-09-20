@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "aegisq/circuit.hpp"
+#include "aegisq/communication_profiler.hpp"
 #include "aegisq/distributed_layout.hpp"
 #include "aegisq/gate.hpp"
 #include "aegisq/measurement.hpp"
@@ -144,8 +145,16 @@ class DistributedStateVectorT {
     /// on every rank, which defeats the point of distributing the state.
     std::vector<std::complex<double>> gather() const;
 
-    const LocalMetrics& metrics() const { return metrics_; }
-    void reset_metrics() { metrics_ = LocalMetrics{}; }
+    /// Measured communication and timing counters for this rank.
+    const CommunicationMetrics& metrics() const { return profiler_.metrics(); }
+    void reset_metrics() { profiler_.reset(); }
+
+    /// Counters summed (bytes, calls) or maximised (times) over all ranks.
+    ///
+    /// Byte totals are summed because the quantity of interest is how much
+    /// traffic the job generated; times are maximised because a distributed
+    /// run is only as fast as its slowest rank.
+    CommunicationMetrics reduced_metrics() const;
 
   private:
     void check_operands(const Gate& gate) const;
@@ -179,7 +188,11 @@ class DistributedStateVectorT {
     std::vector<Amplitude> local_;
     std::vector<Amplitude> exchange_;
     std::vector<Amplitude> packed_;
-    LocalMetrics metrics_{};
+    CommunicationProfiler profiler_;
+
+    /// Opcode currently executing, so an exchange can be attributed to it.
+    OpCode current_opcode_{OpCode::X};
+    bool current_gate_communicated_{false};
 };
 
 using DistributedStateVector = DistributedStateVectorT<double>;
