@@ -1235,16 +1235,17 @@ def markdown_summary(raw: Path | None = None) -> str:
         lines.append("")
         lines.append(
             "| circuit | ranks | baseline (MiB) | fusion | static placement | "
-            "windowed placement | placement + fusion |"
+            "windowed placement | placement + fusion | windowed + fusion |"
         )
-        lines.append("|---|---:|---:|---:|---:|---:|---:|")
+        lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
         for row in levers.itertuples():
             lines.append(
                 f"| {row.circuit_family} | {row.ranks} | {row.baseline_bytes / 2**20:.0f} | "
                 f"{lever_percent(row.fusion_only_reduction)} | "
                 f"{lever_percent(row.placement_only_reduction)} | "
                 f"{lever_percent(getattr(row, 'windowed_only_reduction', None))} | "
-                f"{lever_percent(row.both_reduction)} |"
+                f"{lever_percent(row.both_reduction)} | "
+                f"{lever_percent(getattr(row, 'windowed_fusion_reduction', None))} |"
             )
         lines.append("")
 

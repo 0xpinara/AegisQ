@@ -137,6 +137,7 @@ def build_block() -> str:
             "placement_only_reduction",
             "windowed_only_reduction",
             "both_reduction",
+            "windowed_fusion_reduction",
         )
         if column in levers.columns and not levers[column].isna().all()
     ]
@@ -155,9 +156,9 @@ def build_block() -> str:
         lines.append("")
         lines.append(
             "| circuit | baseline MPI bytes | fusion | static placement | "
-            "windowed placement | placement + fusion |"
+            "windowed placement | placement + fusion | everything |"
         )
-        lines.append("|---|---:|---:|---:|---:|---:|")
+        lines.append("|---|---:|---:|---:|---:|---:|---:|")
 
         def percent(value):
             return "\u2014" if value is None or pd.isna(value) else f"{value * 100:.1f}%"
@@ -170,6 +171,7 @@ def build_block() -> str:
                     "placement_only_reduction",
                     "windowed_only_reduction",
                     "both_reduction",
+                    "windowed_fusion_reduction",
                 )
             ]
             values = [v for v in values if v is not None and not pd.isna(v)]
@@ -184,6 +186,7 @@ def build_block() -> str:
                     "placement_only_reduction",
                     "windowed_only_reduction",
                     "both_reduction",
+                    "windowed_fusion_reduction",
                 )
             ]
             cells = [f"**{c}**" if c == best and c != "0.0%" else c for c in cells]
@@ -204,6 +207,23 @@ def build_block() -> str:
                     f"{example['placement_only_reduction'] * 100:.1f}% \u2014 by paying a few "
                     "shard exchanges to re-assign qubits between phases. Where a circuit has "
                     "no phase structure the planner declines to switch and the two coincide."
+                )
+                lines.append("")
+
+        if "windowed_fusion_reduction" in interesting.columns:
+            everything = interesting.dropna(subset=["windowed_fusion_reduction"]).copy()
+            everything["single_best"] = everything[
+                ["fusion_only_reduction", "placement_only_reduction", "windowed_only_reduction"]
+            ].max(axis=1)
+            everything["lift"] = everything["windowed_fusion_reduction"] - everything["single_best"]
+            top = everything.sort_values("lift", ascending=False).iloc[0]
+            if top["lift"] > 0.01:
+                lines.append(
+                    "Applying all three together is worth more than the best of them alone. "
+                    f"For `{top['circuit_family']}` the combination removes "
+                    f"{top['windowed_fusion_reduction'] * 100:.1f}% where the best single "
+                    f"lever removes {top['single_best'] * 100:.1f}% — the levers change each "
+                    "other's cost landscape rather than dividing the same saving between them."
                 )
                 lines.append("")
 
