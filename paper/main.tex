@@ -13,6 +13,12 @@
 % present in a minimal TeX installation.
 \newcommand{\ket}[1]{\left|#1\right\rangle}
 
+% Every measured figure quoted in the prose, generated from benchmarks/raw/
+% by scripts/generate_report.py. Typing one in by hand is how the abstract
+% came to claim a wall-time improvement that two re-measurements ago had
+% stopped clearing the experiment's own noise floor.
+\input{tables/measured.tex}
+
 \title{AegisQ-HPC: Communication-Aware Distributed Quantum Simulation\\
        with Post-Quantum Secure Job Provenance}
 \author{Pinar Aksoy}
@@ -32,14 +38,18 @@ choice deliberately, and pairs it with a gate-fusion pass that reduces how
 often the remaining communicating gates fire. Every byte the runtime hands to MPI is instrumented, an
 analytical cost model predicts that traffic from the circuit structure, and a
 search over qubit placements minimises it. On a single 8-core host with
-shared-memory MPI, communication-aware placement removes $87.2\%$ of measured
-MPI traffic for a 20-qubit quantum Fourier transform on 8 ranks (wall time
-$-24.3\%$) and $72.3\%$ for a Grover circuit, while leaving a GHZ chain
-unchanged; the cost model predicted the byte count exactly in all 42
-distributed configurations measured. We additionally protect job submission
+shared-memory MPI, communication-aware placement removes \aegisqQftTraffic{} of
+measured MPI traffic for a \aegisqQubits-qubit quantum Fourier transform on
+\aegisqRanks{} ranks and \aegisqGroverTraffic{} for a Grover circuit, while
+leaving a GHZ chain unchanged; the cost model predicted the byte count exactly
+in all \aegisqExactPredictions{} of \aegisqPredictionConfigs{} distributed
+configurations measured. Wall time on this host is another matter: the circuits
+the optimiser cannot improve still vary by \aegisqWallNoiseFloor{} between
+placements, so we report the traffic reduction as the result and treat
+wall-time differences below that floor as unresolved. We additionally protect job submission
 and result provenance with the NIST-standardised post-quantum primitives
-ML-KEM-768 and ML-DSA-65, and measure that overhead: $1.49\%$ of the runtime
-of the heaviest job in our suite, of which only $189\,\mu$s is lattice
+ML-KEM-768 and ML-DSA-65, and measure that overhead: \aegisqEnvelopeOverhead{} of the runtime
+of the heaviest job in our suite, of which only $\aegisqLatticeMicros\,\mu$s is lattice
 arithmetic. All results are from one laptop; we are explicit throughout about
 what that does and does not support.
 \end{abstract}
@@ -297,8 +307,10 @@ combined in one table.
 The native and distributed engines are validated against the NumPy reference
 simulator per gate, per placement case, and on randomised circuits at 1, 2, 4
 and 8 ranks; the reference is in turn cross-validated against Qiskit on 100
-seeded random circuits per run. The full suite is 666 single-process tests plus
-109 distributed tests per rank count.
+seeded random circuits per run. The suite is run in full before every
+measurement sweep; its size is reported by the test runner rather than quoted
+here, since a number typed into prose stops being true the first time a test
+is added.
 
 \subsection{RQ1: communication-aware placement}
 
@@ -308,7 +320,9 @@ Table~\ref{tab:mapping} gives the measured effect at 8 ranks.
 The quantum Fourier transform benefits most: in the textbook decomposition
 every controlled phase targets the higher-indexed qubit, and the identity
 placement puts exactly those qubits on the global positions. Moving them local
-removes $87.2\%$ of the traffic and $24.3\%$ of the wall time. Grover's dense
+removes \aegisqQftTraffic{} of the traffic. Its wall time falls by
+\aegisqQftWall, but that change does not clear the noise floor and we do not
+claim it. Grover's dense
 multi-controlled blocks behave similarly. The GHZ chain shows no reduction at
 all --- every qubit but one is a \texttt{cx} target exactly once, so no
 placement is better than another. We report that as a result: a heuristic that
@@ -320,7 +334,7 @@ when communication is not the bottleneck --- here, shared-memory MPI on one
 socket, where a ``transfer'' is a memory copy.
 
 The cost model predicted the byte count and the message count \emph{exactly} in
-all 42 distributed configurations measured.
+all \aegisqPredictionConfigs{} distributed configurations measured.
 
 \subsection{When is the search necessary?}
 
@@ -392,13 +406,14 @@ restoration that the static baseline gets for free. Both were wrong in our
 first implementation, and both showed up as windowing apparently losing to
 static placement on circuits where it plainly should not.
 
-Measured at 8 ranks, windowed placement beats the best single assignment on
-four of five families: $95.7\%$ of baseline traffic removed for the QFT
-against $87.2\%$ static, and $87.1\%$ against $72.3\%$ for Grover. On GHZ,
+Measured at \aegisqRanks{} ranks, windowed placement beats the best single
+assignment on four of five families: \aegisqQftWindowed{} of baseline traffic
+removed for the QFT against \aegisqQftPlacement{} static, and
+\aegisqGroverWindowed{} against \aegisqGroverPlacement{} for Grover. On GHZ,
 which has no phase structure, the planner declines to switch and the two
 coincide. For random circuits the best result comes from placement and fusion
-together ($53.1\%$) rather than from windowing ($42.9\%$), so no single lever
-dominates.
+together (\aegisqRandomBoth) rather than from windowing
+(\aegisqRandomWindowed), so no single lever dominates.
 
 \input{tables/strong_scaling.tex}
 
@@ -442,9 +457,9 @@ Table~\ref{tab:pqc} gives primitive costs. End to end, packing a 20-qubit job
 bundle takes $3.1$\,ms and verifying, decrypting and opening it $5.6$\,ms, with
 $7083$ bytes of envelope overhead independent of circuit size. Against the
 heaviest job in our suite ($582$\,ms, $1792$\,MiB of MPI traffic) that is
-$1.49\%$ of runtime.
+\aegisqEnvelopeOverhead{} of runtime.
 
-The decomposition matters more than the total: only $189\,\mu$s of that is
+The decomposition matters more than the total: only $\aegisqLatticeMicros\,\mu$s of that is
 lattice arithmetic. The remainder is canonical JSON serialisation and base64
 encoding of the circuit. A reader who concluded ``post-quantum cryptography is
 expensive'' from the end-to-end number would be drawing the wrong lesson; the

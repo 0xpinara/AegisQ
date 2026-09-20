@@ -400,3 +400,188 @@ def test_search_rows_record_provenance():
     row = search.measure_grover(2, shots=64, seed=7)
     missing = [column for column in PROVENANCE_FIELDS if column not in row]
     assert not missing, f"search row omits {missing}"
+
+
+def _mapping_raw(cases) -> pd.DataFrame:
+    """Raw mapping_comparison rows from (family, strategy, bytes, walls) tuples."""
+    base = {
+        "timestamp": "2026-01-01T00:00:00",
+        "hostname": "test-host",
+        "cpu_model": "Test CPU",
+        "logical_cores": 8,
+        "os": "test",
+        "python_version": "3.12.0",
+        "compiler": "TestClang",
+        "mpi_library": "Test MPI",
+        "git_commit": "abc123",
+        "git_dirty": 0,
+        "aegisq_version": "0.1.0",
+        "experiment": "mapping_comparison",
+        "qubits": 20,
+        "gates": 100,
+        "depth": 40,
+        "two_qubit_gates": 50,
+        "precision": "fp64",
+        "shots": 0,
+        "seed": 42,
+        "communicating_gates": 10,
+        "local_amplitudes": 262144,
+        "thread_policy": "one-thread-per-rank",
+        "omp_threads": 1,
+        "ranks": 4,
+    }
+    rows = []
+    for family, strategy, sent, walls in cases:
+        for repeat, wall in enumerate(walls):
+            rows.append(
+                {
+                    **base,
+                    "circuit_family": family,
+                    "circuit_name": f"{family}20",
+                    "mapping_strategy": strategy,
+                    "repeat": repeat,
+                    "wall_seconds": wall,
+                    "compute_seconds": wall * 0.8,
+                    "communication_seconds": wall * 0.2,
+                    "bytes_sent": sent,
+                    "bytes_received": sent,
+                    "pairwise_exchanges": 8,
+                    "predicted_bytes": sent,
+                    "predicted_exchanges": 8,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def test_a_control_circuit_sets_the_noise_floor():
+    """A circuit the optimiser cannot improve measures the experiment's noise.
+
+    GHZ sends byte for byte what the default sends -- the reduction is
+    exactly 0.0% -- so its true wall-time effect is zero and whatever the
+    clock reports is noise. The measured -30.8% for GHZ at 8 ranks was
+    being printed beside the genuine reductions on QFT and Grover.
+
+    Here the control drifts by 20% and the candidate by 10%, so the
+    candidate's apparent win is smaller than the known-zero effect and
+    must not be reported as resolved.
+    """
+    from aegisq.benchmark.report import mapping_table
+
+    raw = _mapping_raw(
+        [
+            ("ghz", "default", 1000, [1.00, 1.01]),
+            ("ghz", "optimized", 1000, [0.80, 0.81]),
+            ("qft", "default", 1000, [1.00, 1.01]),
+            ("qft", "optimized", 500, [0.90, 0.91]),
+        ]
+    )
+    table = mapping_table(raw).set_index("circuit_family")
+
+    assert table.loc["ghz", "wall_noise_floor"] == pytest.approx(0.20, abs=1e-9)
+    assert table.loc["qft", "wall_noise_floor"] == pytest.approx(0.20, abs=1e-9)
+    assert not table.loc["ghz", "wall_change_resolved"], "a control resolved its own effect"
+    assert not table.loc["qft", "wall_change_resolved"], "a change below the floor was resolved"
+
+
+def test_a_change_clearing_the_floor_is_resolved():
+    """The criterion must still admit an effect that is actually there."""
+    from aegisq.benchmark.report import mapping_table
+
+    raw = _mapping_raw(
+        [
+            ("ghz", "default", 1000, [1.00, 1.01]),
+            ("ghz", "optimized", 1000, [0.98, 0.99]),
+            ("qft", "default", 1000, [1.00, 1.01]),
+            ("qft", "optimized", 500, [0.50, 0.51]),
+        ]
+    )
+    table = mapping_table(raw).set_index("circuit_family")
+
+    assert table.loc["qft", "wall_noise_floor"] == pytest.approx(0.02, abs=1e-9)
+    assert table.loc["qft", "wall_change_resolved"]
+
+
+def test_overlapping_repeat_ranges_are_never_resolved():
+    """Clearing the floor is not enough if the repeats themselves overlap."""
+    from aegisq.benchmark.report import mapping_table
+
+    raw = _mapping_raw(
+        [
+            ("ghz", "default", 1000, [1.00, 1.001]),
+            ("ghz", "optimized", 1000, [1.00, 1.001]),
+            ("qft", "default", 1000, [1.00, 2.00]),
+            ("qft", "optimized", 500, [0.90, 1.90]),
+        ]
+    )
+    table = mapping_table(raw).set_index("circuit_family")
+
+    assert table.loc["qft", "wall_change"] < -0.05, "the point estimate does clear the floor"
+    assert not table.loc["qft", "wall_change_resolved"]
+
+
+def test_without_a_control_the_floor_is_undefined():
+    """No zero-reduction circuit means no measured noise floor to apply."""
+    from aegisq.benchmark.report import mapping_table
+
+    raw = _mapping_raw(
+        [
+            ("qft", "default", 1000, [1.00, 1.01]),
+            ("qft", "optimized", 500, [0.50, 0.51]),
+        ]
+    )
+    table = mapping_table(raw).set_index("circuit_family")
+
+    assert pd.isna(table.loc["qft", "wall_noise_floor"])
+    assert table.loc["qft", "wall_change_resolved"], "the interval test alone should decide"
+
+
+def test_the_paper_only_quotes_measured_figures_that_exist():
+    """Every `\\aegisq...` the prose uses must be defined by the generator.
+
+    The paper's measured figures used to be typed in. The abstract
+    claimed a 24.3% wall-time improvement for the QFT placement long
+    after two re-measurements had changed the number and the change had
+    stopped clearing the experiment's noise floor, and the same file said
+    "42 distributed configurations" eleven lines above a generated table
+    saying 99.
+
+    They come from `paper/tables/measured.tex` now. CI has no LaTeX, so a
+    macro dropped from the generator while the prose still uses it would
+    otherwise surface only as a build failure on someone's laptop.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    paper = (root / "paper" / "main.tex").read_text(encoding="utf-8")
+    macros = (root / "paper" / "tables" / "measured.tex").read_text(encoding="utf-8")
+
+    defined = set(re.findall(r"\\newcommand\{\\(aegisq\w+)\}", macros))
+    used = set(re.findall(r"\\(aegisq\w+)", paper))
+    assert used, "the paper quotes no generated figures at all"
+    assert used <= defined, f"undefined in measured.tex: {sorted(used - defined)}"
+
+
+def test_the_paper_does_not_restate_a_generated_figure_by_hand():
+    """A number that has a macro must not also appear as a literal.
+
+    Two copies of a measurement drift apart; the whole point of the
+    macros is that there is one copy. This checks the headline figures
+    specifically, since those are the ones that had drifted.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    paper = (root / "paper" / "main.tex").read_text(encoding="utf-8")
+    macros = (root / "paper" / "tables" / "measured.tex").read_text(encoding="utf-8")
+
+    values = dict(re.findall(r"\\newcommand\{\\(aegisq\w+)\}\{([^}]*)\}", macros))
+    interesting = ("aegisqQftTraffic", "aegisqGroverTraffic", "aegisqWallNoiseFloor")
+    for name in interesting:
+        literal = values.get(name, "").replace("\\%", "").strip()
+        if not literal:
+            continue
+        # `\input`-ed tables legitimately carry the same number; only the
+        # hand-written prose in main.tex is checked.
+        assert literal not in paper, f"main.tex writes {literal} literally; use \\{name} instead"

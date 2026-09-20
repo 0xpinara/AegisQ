@@ -119,11 +119,28 @@ def build_block() -> str:
         )
         lines.append("|---|---:|---:|---:|---:|")
         for row in interesting.sort_values("bytes_reduction", ascending=False).itertuples():
+            change = f"{row.wall_change * 100:+.1f}%"
+            if not row.wall_change_resolved:
+                change = f"{change} (unresolved)"
             lines.append(
                 f"| {row.circuit_family} | {row.baseline_bytes:,} | {row.optimized_bytes:,} | "
-                f"**{row.bytes_reduction * 100:.1f}%** | {row.wall_change * 100:+.1f}% |"
+                f"**{row.bytes_reduction * 100:.1f}%** | {change} |"
             )
         lines.append("")
+        floor = interesting["wall_noise_floor"].dropna()
+        if not floor.empty:
+            lines.append(
+                f"Byte counts are exact counters. Wall times are not, and at this size they "
+                f"are barely a measurement: the circuits with a 0.0% reduction send byte for "
+                f"byte what the default sends, so their true wall-time effect is zero, and the "
+                f"clock still reported up to **{floor.max() * 100:.1f}%**. That is the noise "
+                "floor of this experiment, measured rather than assumed, and a change is "
+                "marked unresolved unless it clears the floor and its repeat ranges do not "
+                "overlap the baseline's. Most do not clear it. The placement result is the "
+                "traffic reduction; the wall-time column is reported for completeness and "
+                "should not be read as a speedup on this host."
+            )
+            lines.append("")
         unchanged = [
             row.circuit_family for row in interesting.itertuples() if row.bytes_reduction < 0.01
         ]
@@ -532,11 +549,15 @@ def write_paper_tables() -> list[Path]:
             f"{row.circuit_family} & {row.baseline_bytes / 2**20:.0f} & "
             f"{row.optimized_bytes / 2**20:.0f} & {row.bytes_reduction * 100:.1f}\\% & "
             f"{row.baseline_wall_s * 1000:.0f} & {row.optimized_wall_s * 1000:.0f} & "
-            f"{row.wall_change * 100:+.1f}\\% \\\\"
+            f"{row.wall_change * 100:+.1f}\\%"
+            + ("" if row.wall_change_resolved else "$^{\\dagger}$")
+            + " \\\\"
             for row in subset.itertuples()
         ]
         ranks = int(subset["ranks"].iloc[0])
         qubits = int(subset["qubits"].iloc[0])
+        floor = subset["wall_noise_floor"].dropna()
+        floor_percent = float(floor.max()) * 100 if not floor.empty else float("nan")
         emit(
             "mapping.tex",
             "\\begin{tabular}{lrrrrrr}\n\\toprule\n & \\multicolumn{3}{c}{MPI bytes sent} "
@@ -546,7 +567,11 @@ def write_paper_tables() -> list[Path]:
             "\\\\\n & (MiB) & (MiB) & & (ms) & (ms) & \\\\\n\\midrule",
             rows,
             f"Measured MPI traffic and wall time under the default and "
-            f"communication-aware placements, {qubits} qubits on {ranks} ranks.",
+            f"communication-aware placements, {qubits} qubits on {ranks} ranks. "
+            f"Byte counts are exact. Wall-time changes marked $\\dagger$ are "
+            f"unresolved: they do not exceed the noise floor of "
+            f"{floor_percent:.1f}\\%, measured on the circuits whose traffic the "
+            f"optimiser leaves unchanged and whose true effect is therefore zero.",
             "tab:mapping",
         )
 
@@ -627,7 +652,114 @@ def write_paper_tables() -> list[Path]:
             "tab:grover",
         )
 
+    written.append(write_measured_macros(data, directory))
     return written
+
+
+def write_measured_macros(data, directory: Path) -> Path:
+    """Emit the paper's measured figures as LaTeX macros.
+
+    The abstract claimed a wall-time improvement of 24.3% for the QFT
+    placement. That number had been typed in by hand, the data had since
+    been re-measured twice, and the change it described no longer cleared
+    the experiment's own noise floor -- an unsupported performance claim
+    sitting in the first paragraph, which is exactly what this project
+    says it does not do.
+
+    Hand-copied numbers drift silently; generated ones cannot. Every
+    measured figure the prose quotes is defined here from the same frames
+    the tables are built from, so re-running the suite updates the
+    sentences as well as the tables, and a figure that stops existing
+    becomes a LaTeX error rather than a stale claim.
+    """
+    from aegisq.benchmark import report as report_module
+
+    mapping = report_module.mapping_table(data)
+    accuracy = report_module.prediction_accuracy(data)
+    pqc = report_module.pqc_table(report_module.load_pqc())
+    envelope = report_module.pqc_envelope_table(report_module.load_pqc())
+
+    macros: dict[str, str] = {}
+
+    def define(name: str, value: str) -> None:
+        macros[name] = value
+
+    if not mapping.empty:
+        widest = mapping[mapping["ranks"] == mapping["ranks"].max()]
+        define("aegisqRanks", f"{int(widest['ranks'].iloc[0])}")
+        define("aegisqQubits", f"{int(widest['qubits'].iloc[0])}")
+        by_family = widest.set_index("circuit_family")
+        for family in ("qft", "grover", "ising", "ghz"):
+            if family not in by_family.index:
+                continue
+            row = by_family.loc[family]
+            title = family.capitalize()
+            define(f"aegisq{title}Traffic", f"{row['bytes_reduction'] * 100:.1f}\\%")
+            define(f"aegisq{title}Wall", f"{row['wall_change'] * 100:+.1f}\\%")
+            define(f"aegisq{title}Resolved", "yes" if row["wall_change_resolved"] else "no")
+        floor = widest["wall_noise_floor"].dropna()
+        if not floor.empty:
+            define("aegisqWallNoiseFloor", f"{float(floor.max()) * 100:.1f}\\%")
+
+    levers = report_module.lever_table(data)
+    if not levers.empty:
+        widest_levers = levers[levers["ranks"] == levers["ranks"].max()].set_index(
+            "circuit_family"
+        )
+        lever_columns = {
+            "Fusion": "fusion_only_reduction",
+            "Placement": "placement_only_reduction",
+            "Windowed": "windowed_only_reduction",
+            "Both": "both_reduction",
+            "WindowedFusion": "windowed_fusion_reduction",
+        }
+        for family in ("qft", "grover", "ising", "ghz", "random"):
+            if family not in widest_levers.index:
+                continue
+            for label, column in lever_columns.items():
+                if column in widest_levers.columns:
+                    value = float(widest_levers.loc[family, column])
+                    define(f"aegisq{family.capitalize()}{label}", f"{value * 100:.1f}\\%")
+
+    if not accuracy.empty:
+        define("aegisqExactPredictions", f"{int((accuracy['bytes_error'] == 0).sum())}")
+        define("aegisqPredictionConfigs", f"{len(accuracy)}")
+
+    if not envelope.empty and not mapping.empty:
+        steps = envelope.set_index("operation")
+        pack = float(steps["median_us"].get("pack", 0.0))
+        verify = float(steps["median_us"].get("verify_and_open", 0.0))
+        reference = mapping.sort_values("baseline_wall_s", ascending=False).iloc[0]
+        job_ms = float(reference["baseline_wall_s"]) * 1000
+        define("aegisqEnvelopeMs", f"{(pack + verify) / 1000:.1f}")
+        if job_ms:
+            define("aegisqEnvelopeOverhead", f"{(pack + verify) / 10 / job_ms:.2f}\\%")
+        if not pqc.empty:
+            indexed = pqc.set_index(["algorithm", "operation"])["median_us"]
+            lattice = sum(
+                float(indexed.get(key, 0.0))
+                for key in (
+                    ("ML-KEM-768", "encapsulate"),
+                    ("ML-KEM-768", "decapsulate"),
+                    ("ML-DSA-65", "sign"),
+                    ("ML-DSA-65", "verify"),
+                )
+            )
+            define("aegisqLatticeMicros", f"{lattice:.0f}")
+
+    body = "\n".join(
+        f"\\newcommand{{\\{name}}}{{{value}}}" for name, value in sorted(macros.items())
+    )
+    text = (
+        "% Generated by scripts/generate_report.py from benchmarks/raw/.\n"
+        "% Do not edit: every value here is a measurement, and editing one\n"
+        "% would make the prose disagree with the tables beside it.\n"
+        f"{body}\n"
+    )
+    path = directory / "measured.tex"
+    path.write_text(text, encoding="utf-8")
+    print(f"Wrote {path.relative_to(ROOT)}")
+    return path
 
 
 def splice(readme: str, block: str) -> str:

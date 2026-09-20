@@ -20,9 +20,12 @@ comparison is made here; see [docs/limitations.md](docs/limitations.md)).
 
 > **Headline result.** On 8 ranks at 20 qubits, communication-aware placement
 > removed **87.2% of measured MPI traffic** for a quantum Fourier transform
-> (wall time −24.3%) and 72.3% for Grover — and left a GHZ chain untouched,
-> because nothing there can be improved. The analytical cost model predicted
-> the byte count *exactly* in all 42 distributed configurations measured.
+> and 72.3% for Grover — and left a GHZ chain untouched, because nothing
+> there can be improved. The analytical cost model predicted the byte count
+> *exactly* in every distributed configuration measured. Wall time is not
+> part of the claim: on this host the placements that provably change nothing
+> still differ by up to 30.8% between runs, so most wall-time differences sit
+> under the noise floor and are reported as unresolved.
 > [Full numbers below](#measured-results), from raw data in
 > [`benchmarks/raw/`](benchmarks/raw/).
 
@@ -115,11 +118,13 @@ All figures below were measured on **Apple M2 (8 logical cores)**, macOS-15.6.1-
 
 | circuit | measured MPI bytes, default | measured MPI bytes, optimized | reduction | wall time change |
 |---|---:|---:|---:|---:|
-| qft | 981,467,136 | 125,829,120 | **87.2%** | -13.6% |
-| grover | 1,879,048,192 | 520,093,696 | **72.3%** | -5.5% |
-| random | 411,041,792 | 251,658,240 | **38.8%** | -9.8% |
-| ising | 452,984,832 | 385,875,968 | **14.8%** | -14.4% |
-| ghz | 25,165,824 | 25,165,824 | **0.0%** | -30.8% |
+| qft | 981,467,136 | 125,829,120 | **87.2%** | -13.6% (unresolved) |
+| grover | 1,879,048,192 | 520,093,696 | **72.3%** | -5.5% (unresolved) |
+| random | 411,041,792 | 251,658,240 | **38.8%** | -9.8% (unresolved) |
+| ising | 452,984,832 | 385,875,968 | **14.8%** | -14.4% (unresolved) |
+| ghz | 25,165,824 | 25,165,824 | **0.0%** | -30.8% (unresolved) |
+
+Byte counts are exact counters. Wall times are not, and at this size they are barely a measurement: the circuits with a 0.0% reduction send byte for byte what the default sends, so their true wall-time effect is zero, and the clock still reported up to **30.8%**. That is the noise floor of this experiment, measured rather than assumed, and a change is marked unresolved unless it clears the floor and its repeat ranges do not overlap the baseline's. Most do not clear it. The placement result is the traffic reduction; the wall-time column is reported for completeness and should not be read as a speedup on this host.
 
 Not every circuit benefits: ghz shows no reduction, because its expensive qubits already sit well under the default placement. That is a result, not a gap — a heuristic that claimed a win on every circuit would be the suspicious one.
 

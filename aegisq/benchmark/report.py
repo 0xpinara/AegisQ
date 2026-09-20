@@ -191,6 +191,67 @@ def weak_scaling_table(data: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _intervals_are_disjoint(baseline, optimized) -> bool:
+    """Do the two [min, max] wall-time intervals fail to overlap?
+
+    With three repeats there is no honest parametric test to run, so this
+    is the weakest criterion that cannot be wrong about the sign of a
+    difference. It is necessary but, as `_add_noise_floor` explains, very
+    far from sufficient.
+    """
+    return bool(
+        optimized["wall_max"] < baseline["wall_best"]
+        or optimized["wall_best"] > baseline["wall_max"]
+    )
+
+
+def _add_noise_floor(table: pd.DataFrame) -> pd.DataFrame:
+    """Use the configurations where the optimiser did nothing as a control.
+
+    Some circuits -- GHZ is the clear case -- have no placement to
+    improve: the optimiser returns an assignment that sends byte for byte
+    what the default sends, and the measured reduction is exactly 0.0%.
+    The true wall-time effect on those rows is therefore known in advance
+    to be zero, whatever the clock says.
+
+    What the clock said was -15.5%, +7.5% and -30.8%. Those numbers are
+    the experiment measuring its own noise, and they were being printed
+    in the results table beside the real reductions on QFT and Grover,
+    which made the real ones harder to believe rather than easier. They
+    also survive a disjoint-interval test: at a 10 ms measurement, three
+    repeats drift together, so non-overlapping ranges say nothing.
+
+    So each set of configurations sharing a width, rank count and thread
+    policy gets a noise floor: the largest absolute change observed on
+    its zero-reduction rows. A wall-time change counts as resolved only
+    if it exceeds that floor *and* the intervals are disjoint. Byte
+    counts are untouched by any of this -- they are exact counters, not
+    timings, and they are where the placement claim actually lives.
+
+    Where a group has no zero-reduction row there is no control, the
+    floor is undefined, and the interval test alone decides.
+    """
+    if table.empty:
+        return table
+
+    table = table.copy()
+    table["wall_noise_floor"] = float("nan")
+    group_keys = ["qubits", "ranks", "thread_policy", "precision"]
+    for _, index in table.groupby(group_keys).groups.items():
+        rows = table.loc[index]
+        controls = rows[rows["bytes_reduction"] == 0.0]
+        if controls.empty:
+            continue
+        table.loc[index, "wall_noise_floor"] = controls["wall_change"].abs().max()
+
+    floor = table["wall_noise_floor"]
+    above_floor = floor.isna() | (table["wall_change"].abs() > floor)
+    table["wall_change_resolved"] = table["wall_change_resolved"] & above_floor
+    # A control cannot resolve its own effect, by construction.
+    table.loc[table["bytes_reduction"] == 0.0, "wall_change_resolved"] = False
+    return table
+
+
 def mapping_table(data: pd.DataFrame) -> pd.DataFrame:
     """Measured effect of the communication-aware placement."""
     subset = summarise(data[data["experiment"] == "mapping_comparison"])
@@ -230,15 +291,19 @@ def mapping_table(data: pd.DataFrame) -> pd.DataFrame:
                 "wall_change": (
                     (o["wall_best"] - d["wall_best"]) / d["wall_best"] if d["wall_best"] else 0.0
                 ),
+                "wall_change_resolved": _intervals_are_disjoint(d, o),
                 "baseline_comm_s": d["communication_best"],
                 "optimized_comm_s": o["communication_best"],
                 "baseline_wall_spread_s": d["wall_spread"],
                 "optimized_wall_spread_s": o["wall_spread"],
+                "baseline_wall_max_s": d["wall_max"],
+                "optimized_wall_max_s": o["wall_max"],
+                "repeats": int(min(d["repeats"], o["repeats"])),
                 "predicted_baseline_bytes": int(d["predicted_bytes"]),
                 "predicted_optimized_bytes": int(o["predicted_bytes"]),
             }
         )
-    return pd.DataFrame(rows)
+    return _add_noise_floor(pd.DataFrame(rows))
 
 
 def load_pqc(source: Path | None = None) -> pd.DataFrame:
@@ -1195,16 +1260,24 @@ def markdown_summary(raw: Path | None = None) -> str:
         lines.append("")
         lines.append(
             "| circuit | qubits | ranks | baseline MPI bytes | optimized MPI bytes | "
-            "reduction | baseline wall (s) | optimized wall (s) | wall change |"
+            "reduction | baseline wall (s) | optimized wall (s) | wall change | resolved |"
         )
-        lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+        lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|:--:|")
         for row in mapping.itertuples():
             lines.append(
                 f"| {row.circuit_family} | {row.qubits} | {row.ranks} | "
                 f"{row.baseline_bytes:,} | {row.optimized_bytes:,} | "
                 f"{row.bytes_reduction * 100:.1f}% | {row.baseline_wall_s:.3f} | "
-                f"{row.optimized_wall_s:.3f} | {row.wall_change * 100:+.1f}% |"
+                f"{row.optimized_wall_s:.3f} | {row.wall_change * 100:+.1f}% | "
+                f"{'yes' if row.wall_change_resolved else 'no'} |"
             )
+        lines.append("")
+        lines.append(
+            "A wall-time change is *resolved* only if it exceeds the noise floor for its "
+            "rank count -- the largest change measured on circuits the optimiser leaves "
+            "byte-for-byte unchanged, whose true effect is therefore zero -- and its "
+            "repeat range does not overlap the baseline's. Byte counts are exact."
+        )
         lines.append("")
 
     strong = strong_scaling_table(data)

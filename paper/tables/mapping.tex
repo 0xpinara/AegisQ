@@ -9,13 +9,13 @@
 Circuit & Default & Optimized & Reduction & Default & Optimized & Change \\
  & (MiB) & (MiB) & & (ms) & (ms) & \\
 \midrule
-qft & 936 & 120 & 87.2\% & 298 & 257 & -13.6\% \\
-grover & 1792 & 496 & 72.3\% & 468 & 442 & -5.5\% \\
-random & 392 & 240 & 38.8\% & 136 & 122 & -9.8\% \\
-ising & 432 & 368 & 14.8\% & 178 & 152 & -14.4\% \\
-ghz & 24 & 24 & 0.0\% & 15 & 11 & -30.8\% \\
+qft & 936 & 120 & 87.2\% & 298 & 257 & -13.6\%$^{\dagger}$ \\
+grover & 1792 & 496 & 72.3\% & 468 & 442 & -5.5\%$^{\dagger}$ \\
+random & 392 & 240 & 38.8\% & 136 & 122 & -9.8\%$^{\dagger}$ \\
+ising & 432 & 368 & 14.8\% & 178 & 152 & -14.4\%$^{\dagger}$ \\
+ghz & 24 & 24 & 0.0\% & 15 & 11 & -30.8\%$^{\dagger}$ \\
 \bottomrule
 \end{tabular}
-\caption{Measured MPI traffic and wall time under the default and communication-aware placements, 20 qubits on 8 ranks.}
+\caption{Measured MPI traffic and wall time under the default and communication-aware placements, 20 qubits on 8 ranks. Byte counts are exact. Wall-time changes marked $\dagger$ are unresolved: they do not exceed the noise floor of 30.8\%, measured on the circuits whose traffic the optimiser leaves unchanged and whose true effect is therefore zero.}
 \label{tab:mapping}
 \end{table}
