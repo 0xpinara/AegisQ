@@ -109,7 +109,9 @@ aegisq doctor   # report MPI / OpenMP / liboqs / Qiskit availability
 
 <!-- BENCHMARK-RESULTS:START -->
 
-All figures below were measured on **Apple M2 (8.0 logical cores)**, macOS-15.6.1-arm64-arm-64bit, nan, AegisQ 0.1.0 at commit `dabb38de9c99`. They describe that host and are not a claim about cluster hardware.
+All figures below were measured on **Apple M2 (8 logical cores)**, macOS-15.6.1-arm64-arm-64bit, Open MPI v5.0.10, AegisQ 0.1.0 across 7 commits (`54ec4cfa1c2e`, `5984b9d32bf6`, `74a1a238513b`, `a77b4e655ca1`, `b67b6064b543`, `c96b197e4e0b`, `dabb38de9c99`). They describe that host and are not a claim about cluster hardware.
+
+> Some rows were recorded from a working tree with uncommitted changes, so they cannot be attributed to a commit with confidence. Re-run `./scripts/benchmark_local.sh` from a clean tree to replace them.
 
 ### Communication-aware placement, 8 ranks, 20 qubits
 

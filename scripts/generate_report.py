@@ -13,6 +13,7 @@ nothing else.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 from pathlib import Path
 
@@ -29,19 +30,68 @@ def build_block() -> str:
     from aegisq.benchmark import report as report_module
 
     data = report_module.load_raw()
-    host = data.iloc[0]
+
+    def describe(column: str, default: str = "unknown") -> str:
+        """Most common non-null value of a column across every raw row.
+
+        Reading row zero is fragile: raw files accumulate with different
+        schemas, and a concatenation can put a NaN there for a column that is
+        well defined everywhere else.
+        """
+        if column not in data.columns:
+            return default
+        values = data[column].dropna()
+        return str(values.mode().iloc[0]) if not values.empty else default
+
+    cores = describe("logical_cores", "0")
+    with contextlib.suppress(ValueError):
+        cores = str(int(float(cores)))
     mapping = report_module.mapping_table(data)
     strong = report_module.strong_scaling_table(data)
     accuracy = report_module.prediction_accuracy(data)
 
+    # Provenance has to describe the data, not the first row of it. Raw files
+    # accumulate across commits, and attributing a whole table to whichever
+    # row happened to sort first is precisely the misattribution this project
+    # says it does not do.
+    def collect(frame, column):
+        if frame is None or frame.empty or column not in frame.columns:
+            return set()
+        return {str(value)[:12] for value in frame[column].dropna().unique()}
+
+    everything = [
+        data,
+        report_module.load_pqc(),
+        report_module.load_search(),
+        report_module.load_kernels(),
+        report_module.load_placement_quality(),
+    ]
+    commits = sorted(set().union(*(collect(frame, "git_commit") for frame in everything)))
+    dirty = any(
+        bool(frame["git_dirty"].fillna(0).astype(float).max())
+        for frame in everything
+        if frame is not None and not frame.empty and "git_dirty" in frame.columns
+    )
+
     lines: list[str] = [START, ""]
+    if len(commits) == 1:
+        provenance = f"at commit `{commits[0]}`"
+    else:
+        provenance = f"across {len(commits)} commits (`" + "`, `".join(commits) + "`)"
     lines.append(
-        f"All figures below were measured on **{host['cpu_model']} "
-        f"({host['logical_cores']} logical cores)**, {host['os']}, "
-        f"{str(host['mpi_library']).split(',')[0]}, "
-        f"AegisQ {host['aegisq_version']} at commit `{str(host['git_commit'])[:12]}`. "
+        f"All figures below were measured on **{describe('cpu_model')} "
+        f"({cores} logical cores)**, {describe('os')}, "
+        f"{describe('mpi_library').split(',')[0]}, "
+        f"AegisQ {describe('aegisq_version')} {provenance}. "
         "They describe that host and are not a claim about cluster hardware."
     )
+    if dirty:
+        lines.append("")
+        lines.append(
+            "> Some rows were recorded from a working tree with uncommitted changes, "
+            "so they cannot be attributed to a commit with confidence. Re-run "
+            "`./scripts/benchmark_local.sh` from a clean tree to replace them."
+        )
     lines.append("")
 
     if not mapping.empty:
