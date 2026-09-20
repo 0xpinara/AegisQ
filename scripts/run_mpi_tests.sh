@@ -3,7 +3,7 @@
 #
 # MPI tests cannot run inside a normal pytest process: pytest itself must be
 # launched by mpirun so that every rank executes the same test body.
-set -euo pipefail
+set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -18,21 +18,34 @@ fi
 
 # Correctness tests routinely ask for more ranks than the machine has cores
 # (a 2-core CI runner still has to prove the 4-rank code paths work). OpenMPI
-# refuses that without --oversubscribe; MPICH does not accept the flag at all.
+# refuses that without --oversubscribe; MPICH does not accept the flag and
+# oversubscribes anyway.
 #
-# The capability is probed by *running* a trivial job rather than by grepping
-# `mpirun --help`: OpenMPI 5 lists the flag in its top-level help and OpenMPI 4
-# does not, so parsing the help text silently drops the flag on older
-# installations and the 4-rank run then dies on slot exhaustion.
-OVERSUBSCRIBE_FLAG=""
-if mpirun --oversubscribe -np 1 true >/dev/null 2>&1; then
-    OVERSUBSCRIBE_FLAG="--oversubscribe"
+# The probe launches a real program and checks its output, rather than only
+# checking the exit status. A launcher that mis-parses the flag can still
+# exit zero while running nothing, and an earlier version of this probe was
+# fooled exactly that way: every subsequent run produced no output at all.
+OVERSUBSCRIBE_FLAG="${AEGISQ_MPI_FLAGS-}"
+if [ -z "${AEGISQ_MPI_FLAGS+x}" ]; then
+    OVERSUBSCRIBE_FLAG=""
+    probe="$(mpirun --oversubscribe -np 1 "$PYTHON" -c 'print("aegisq-probe-ok")' 2>/dev/null || true)"
+    if [ "$probe" = "aegisq-probe-ok" ]; then
+        OVERSUBSCRIBE_FLAG="--oversubscribe"
+    fi
 fi
+
+echo "launcher: $(command -v mpirun)"
+echo "extra flags: ${OVERSUBSCRIBE_FLAG:-<none>}"
 
 status=0
 for np in $(echo "$RANKS" | tr ',' ' '); do
-    echo "==> mpirun -np $np pytest tests/mpi"
-    if ! mpirun $OVERSUBSCRIBE_FLAG -np "$np" "$PYTHON" -m pytest tests/mpi -q -p no:cacheprovider; then
+    echo "==> mpirun ${OVERSUBSCRIBE_FLAG} -np $np pytest tests/mpi"
+    # shellcheck disable=SC2086
+    # -u keeps stdout unbuffered. Without it, a rank that dies takes the
+    # whole run's buffered output with it, which is how a CI failure once
+    # arrived with no diagnostic text at all.
+    if ! mpirun $OVERSUBSCRIBE_FLAG -np "$np" "$PYTHON" -u -m pytest tests/mpi -q -p no:cacheprovider; then
+        echo "    FAILED at $np rank(s)" >&2
         status=1
     fi
 done
