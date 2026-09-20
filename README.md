@@ -57,7 +57,7 @@ This repository is built in phases; only what is checked below is implemented.
 - [x] Phase 8 — communication profiler
 - [x] Phase 9 — gate-aware communication cost model
 - [x] Phase 10 — static communication-aware mapper
-- [ ] Phase 11 — mapper evaluation on measured hardware
+- [x] Phase 11 — mapper evaluation on measured hardware
 - [x] Phase 12 — OpenQASM subset front end
 - [x] Phase 13 — memory estimator
 - [ ] Phase 14 — post-quantum identities (ML-KEM-768 / ML-DSA-65)
@@ -66,8 +66,9 @@ This repository is built in phases; only what is checked below is implemented.
 - [ ] Phase 17 — signed result provenance and Merkle verification
 - [ ] Phase 18 — security model documentation
 
-No benchmark numbers appear in this README until they have been measured on a
-described host and committed as raw data under `benchmarks/raw/`.
+Benchmark numbers in this README are generated from raw measurements under
+`benchmarks/raw/` by [`scripts/generate_report.py`](scripts/generate_report.py);
+none are typed by hand.
 
 ## Quick start
 
@@ -94,6 +95,49 @@ aegisq doctor   # report MPI / OpenMP / liboqs / Qiskit availability
 | liboqs-python | ML-KEM-768 / ML-DSA-65 | for the secure job layer |
 | Qiskit | correctness oracle in tests | optional |
 | CUDA | experimental GPU work | optional, not required |
+
+## Measured results
+
+<!-- BENCHMARK-RESULTS:START -->
+
+All figures below were measured on **Apple M2 (8 logical cores)**, macOS-15.6.1-arm64-arm-64bit, Open MPI v5.0.10, AegisQ 0.1.0 at commit `4bf173533b4a`. They describe that host and are not a claim about cluster hardware.
+
+### Communication-aware placement, 8 ranks, 20 qubits
+
+| circuit | measured MPI bytes, default | measured MPI bytes, optimized | reduction | wall time change |
+|---|---:|---:|---:|---:|
+| grover | 1,879,048,192 | 520,093,696 | **72.3%** | -16.9% |
+| random | 411,041,792 | 251,658,240 | **38.8%** | -5.9% |
+| ising | 452,984,832 | 385,875,968 | **14.8%** | -6.9% |
+| ghz | 25,165,824 | 25,165,824 | **0.0%** | +8.7% |
+| qft | 125,829,120 | 125,829,120 | **0.0%** | -1.1% |
+
+Two of the five families show no reduction at all. That is a result, not a gap: a GHZ chain and this QFT decomposition already place their expensive qubits well under the default mapping, so there is nothing for the optimiser to win.
+
+![Communication-aware placement](benchmarks/plots/mapping_comparison.png)
+
+### Strong scaling (one thread per rank)
+
+| circuit | qubits | ranks | wall time (s) | speedup | efficiency |
+|---|---:|---:|---:|---:|---:|
+| ising | 22 | 1 | 1.895 | 1.00x | 100% |
+| ising | 22 | 2 | 1.006 | 1.88x | 94% |
+| ising | 22 | 4 | 0.715 | 2.65x | 66% |
+| ising | 22 | 8 | 0.725 | 2.61x | 33% |
+| qft | 22 | 1 | 5.313 | 1.00x | 100% |
+| qft | 22 | 2 | 2.976 | 1.79x | 89% |
+| qft | 22 | 4 | 2.017 | 2.63x | 66% |
+| qft | 22 | 8 | 1.829 | 2.90x | 36% |
+
+![Strong scaling](benchmarks/plots/strong_scaling.png)
+
+### Cost model versus reality
+
+In all **42 of 42** distributed configurations measured here, the runtime sent exactly the number of bytes the analytical cost model predicted.
+
+Raw measurements: [`benchmarks/raw/`](benchmarks/raw/) · derived tables: [`benchmarks/processed/`](benchmarks/processed/) · methodology: [`docs/benchmark-methodology.md`](docs/benchmark-methodology.md)
+
+<!-- BENCHMARK-RESULTS:END -->
 
 ## Running a circuit
 

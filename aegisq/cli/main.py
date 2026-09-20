@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from aegisq import __version__
 
@@ -251,6 +252,101 @@ def _cmd_estimate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_rank_list(text: str) -> list[int]:
+    ranks = []
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        value = int(part)
+        if value < 1 or value & (value - 1):
+            raise SystemExit(f"rank counts must be powers of two, got {value}")
+        ranks.append(value)
+    if not ranks:
+        raise SystemExit("no rank counts given")
+    return ranks
+
+
+def _cmd_benchmark(args: argparse.Namespace) -> int:
+    """Run a measurement sweep, or regenerate reports from existing raw data."""
+
+    from aegisq.benchmark import report as report_module
+    from aegisq.benchmark.runner import default_raw_path
+
+    if args.benchmark_command == "report":
+        written = report_module.write_reports(args.raw)
+        if not written:
+            print("no reports generated: no raw measurements found")
+            return 1
+        for name, path in written.items():
+            print(f"  {name:<24} {path}")
+        summary_path = report_module.PROCESSED_DIR / "summary.md"
+        summary_path.write_text(report_module.markdown_summary(args.raw), encoding="utf-8")
+        print(f"  {'markdown summary':<24} {summary_path}")
+        return 0
+
+    from aegisq.benchmark.communication import DEFAULT_FAMILIES, mapping_experiment
+    from aegisq.benchmark.scaling import strong_scaling, weak_scaling
+
+    output: Path = args.output or default_raw_path(
+        {"strong": "strong_scaling", "weak": "weak_scaling", "mapping": "mapping_comparison"}[
+            args.benchmark_command
+        ]
+    )
+    ranks = _parse_rank_list(args.ranks)
+    print(f"Writing raw measurements to {output}")
+
+    if args.benchmark_command == "strong":
+        strong_scaling(
+            args.circuit,
+            args.qubits,
+            ranks,
+            output,
+            precision=args.precision,
+            mapping=args.mapping,
+            repeats=args.repeats,
+            options=args.option,
+            thread_policy=args.thread_policy,
+        )
+    elif args.benchmark_command == "weak":
+        weak_scaling(
+            args.circuit,
+            args.qubits,
+            ranks,
+            output,
+            precision=args.precision,
+            mapping=args.mapping,
+            repeats=args.repeats,
+            options=args.option,
+            thread_policy=args.thread_policy,
+        )
+    else:
+        families = (
+            [f.strip() for f in args.circuits.split(",")]
+            if args.circuits
+            else list(DEFAULT_FAMILIES)
+        )
+        per_family = {}
+        for item in args.option or []:
+            family, _, option = item.partition(":")
+            per_family.setdefault(family, []).append(option)
+        mapping_experiment(
+            families,
+            args.qubits,
+            ranks,
+            output,
+            precision=args.precision,
+            repeats=args.repeats,
+            options=per_family,
+            thread_policy=args.thread_policy,
+        )
+
+    print()
+    print("Raw data written. Regenerate tables and plots with:")
+    print("  aegisq benchmark report")
+    return 0
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     """Report what the local machine can and cannot do."""
     from aegisq.runtime import hardware
@@ -340,6 +436,81 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--option", action="append", metavar="KEY=VALUE", help="extra family option")
     run.add_argument("--json", action="store_true", help="emit machine-readable output")
     run.set_defaults(func=_cmd_run)
+
+    benchmark = subparsers.add_parser(
+        "benchmark",
+        help="run measurement sweeps and regenerate reports",
+        description=(
+            "Every figure in this repository is produced from raw CSV written "
+            "by these sweeps. Sweeps launch one mpirun per configuration."
+        ),
+    )
+    benchmark_sub = benchmark.add_subparsers(dest="benchmark_command", required=True)
+
+    strong = benchmark_sub.add_parser("strong", help="fixed problem size, growing rank count")
+    strong.add_argument("--circuit", required=True)
+    strong.add_argument("--qubits", type=int, required=True)
+    strong.add_argument("--ranks", default="1,2,4,8")
+    strong.add_argument("--precision", choices=("fp64", "fp32"), default="fp64")
+    strong.add_argument("--mapping", choices=("default", "optimized"), default="default")
+    strong.add_argument("--repeats", type=int, default=3)
+    strong.add_argument("--option", action="append", metavar="KEY=VALUE")
+    strong.add_argument(
+        "--thread-policy",
+        choices=("one-thread-per-rank", "fixed-total-cores"),
+        default="one-thread-per-rank",
+        help="one-thread-per-rank grows total cores with ranks; "
+        "fixed-total-cores keeps ranks x threads at the core count",
+    )
+    strong.add_argument("--output", type=Path)
+    strong.set_defaults(func=_cmd_benchmark)
+
+    weak = benchmark_sub.add_parser(
+        "weak", help="problem grows with the rank count (constant shard size)"
+    )
+    weak.add_argument("--circuit", required=True)
+    weak.add_argument("--qubits", type=int, required=True, help="width at one rank")
+    weak.add_argument("--ranks", default="1,2,4,8")
+    weak.add_argument("--precision", choices=("fp64", "fp32"), default="fp64")
+    weak.add_argument("--mapping", choices=("default", "optimized"), default="default")
+    weak.add_argument("--repeats", type=int, default=3)
+    weak.add_argument("--option", action="append", metavar="KEY=VALUE")
+    weak.add_argument(
+        "--thread-policy",
+        choices=("one-thread-per-rank", "fixed-total-cores"),
+        default="one-thread-per-rank",
+        help="one-thread-per-rank grows total cores with ranks; "
+        "fixed-total-cores keeps ranks x threads at the core count",
+    )
+    weak.add_argument("--output", type=Path)
+    weak.set_defaults(func=_cmd_benchmark)
+
+    mapping_cmd = benchmark_sub.add_parser(
+        "mapping", help="default versus communication-aware placement"
+    )
+    mapping_cmd.add_argument("--circuits", help="comma-separated families")
+    mapping_cmd.add_argument("--qubits", type=int, required=True)
+    mapping_cmd.add_argument("--ranks", default="2,4,8")
+    mapping_cmd.add_argument("--precision", choices=("fp64", "fp32"), default="fp64")
+    mapping_cmd.add_argument("--repeats", type=int, default=3)
+    mapping_cmd.add_argument(
+        "--option", action="append", metavar="FAMILY:KEY=VALUE", help="per-family option"
+    )
+    mapping_cmd.add_argument(
+        "--thread-policy",
+        choices=("one-thread-per-rank", "fixed-total-cores"),
+        default="fixed-total-cores",
+        help="one-thread-per-rank grows total cores with ranks; "
+        "fixed-total-cores keeps ranks x threads at the core count",
+    )
+    mapping_cmd.add_argument("--output", type=Path)
+    mapping_cmd.set_defaults(func=_cmd_benchmark)
+
+    report_cmd = benchmark_sub.add_parser(
+        "report", help="regenerate processed tables and plots from raw measurements"
+    )
+    report_cmd.add_argument("--raw", type=Path, help="raw CSV file or directory")
+    report_cmd.set_defaults(func=_cmd_benchmark)
 
     estimate = subparsers.add_parser(
         "estimate",

@@ -195,6 +195,8 @@ PYBIND11_MODULE(_aegisq_core, m) {
     m.def("has_mpi", &aegisq::has_mpi, "Whether the core was built against MPI.");
     m.def("has_openmp", &aegisq::has_openmp, "Whether local kernels were built with OpenMP.");
     m.def("max_threads", &aegisq::max_threads, "OpenMP thread count available to local kernels.");
+    m.def("set_num_threads", &aegisq::set_num_threads, py::arg("threads"),
+          "Request a thread count for local kernels; returns the count in force.");
 
     m.def(
         "build_info",

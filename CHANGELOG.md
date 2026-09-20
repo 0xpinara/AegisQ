@@ -77,3 +77,11 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   including the exchange and packing buffers the runtime allocates, compared
   against this host's RAM.
 - `aegisq doctor` additionally reports the MPI library string from the core.
+- Benchmark harness: `aegisq benchmark strong|weak|mapping|report`, raw
+  append-only CSV with full provenance per row, warm-up discarding,
+  best-of-repeats statistics, explicit thread policies, plots generated only
+  from raw data, and `scripts/generate_report.py` to keep the README's numbers
+  derived rather than typed.
+- Slurm scripts for strong scaling, weak scaling, the placement experiment and
+  secure job execution.
+- First measured results committed under `benchmarks/`.

@@ -30,6 +30,18 @@ bool has_openmp() {
 #endif
 }
 
+int set_num_threads(int threads) {
+#if AEGISQ_HAVE_OPENMP
+    if (threads > 0) {
+        omp_set_num_threads(threads);
+    }
+    return omp_get_max_threads();
+#else
+    (void)threads;
+    return 1;
+#endif
+}
+
 int max_threads() {
 #if AEGISQ_HAVE_OPENMP
     return omp_get_max_threads();

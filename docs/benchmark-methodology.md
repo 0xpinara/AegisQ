@@ -1,8 +1,78 @@
-# benchmark methodology
+# Benchmark methodology
 
-> Status: placeholder. This document is written in the project phase that
-> implements the corresponding component; see the phase checklist in the
-> [README](../README.md).
+## The rule
+
+Every number in `benchmarks/processed/` and every pixel in
+`benchmarks/plots/` is derived from a raw CSV in `benchmarks/raw/` that was
+written by an actual run of `aegisq.benchmark.runner`. The plotting code reads
+raw data and nothing else: there are no constants describing results anywhere
+in the reporting module.
+
+## What a raw row contains
+
+One row per repeat, carrying its own provenance so a measurement is never
+separated from the machine that produced it:
+
+| Group | Columns |
+|---|---|
+| provenance | timestamp, hostname, cpu_model, logical_cores, os, python_version, compiler, mpi_library, git_commit, git_dirty, aegisq_version |
+| configuration | experiment, circuit_family, circuit_name, qubits, gates, depth, two_qubit_gates, precision, ranks, omp_threads, thread_policy, mapping_strategy, global_qubits, shots, seed, repeat |
+| measurement | wall_seconds, compute_seconds, communication_seconds, bytes_sent, bytes_received, pairwise_exchanges, communicating_gates, local_amplitudes |
+| prediction | predicted_bytes, predicted_exchanges |
+
+The prediction columns sit beside the measurement so the cost model can be
+audited rather than trusted.
+
+## Statistics
+
+- Each configuration runs a **warm-up repeat that is discarded**: the first
+  touch of a fresh shard pays page-fault and allocation costs that say nothing
+  about the steady-state cost of the circuit.
+- The headline figure is the **minimum** wall time across repeats. On a shared
+  machine the least-contended observation is the most reproducible one.
+- The median and the spread (max − min) are reported alongside it, so a noisy
+  measurement is visible as a noisy measurement.
+
+## Thread policy — and why it is a column
+
+On a single node, how many threads each rank gets changes what the experiment
+*means*. The suite records the policy explicitly and never mixes policies in
+one table:
+
+| Policy | Setup | Question it answers |
+|---|---|---|
+| `one-thread-per-rank` | one thread per rank; total cores grow with the rank count | classic strong/weak scaling: does adding processors help? |
+| `fixed-total-cores` | `ranks x threads` held at the core count | at constant hardware, what does partitioning cost? |
+
+Reporting a "speedup" from the second policy as if it were the first is one of
+the easier ways to publish a misleading scaling curve. Both are measured here
+and labelled.
+
+## Definitions
+
+- **Strong scaling**: fixed circuit, growing rank count. Speedup is
+  `T(1) / T(P)`; efficiency is `speedup / P`.
+- **Weak scaling**: the problem grows with the rank count — one extra qubit per
+  doubling — so each rank keeps `2^(n-p)` amplitudes. Ideal behaviour is
+  constant wall time.
+- **Communication volume**: payload bytes handed to MPI, summed over ranks.
+- **Communication time**: seconds spent inside those calls, reported for the
+  slowest rank.
+
+## Reproducing a figure
+
+```bash
+aegisq benchmark mapping --circuits ghz,qft,ising,random,grover \
+    --qubits 20 --ranks 2,4,8 --repeats 3 --option grover:iterations=2
+aegisq benchmark strong --circuit qft --qubits 22 --ranks 1,2,4,8 \
+    --thread-policy one-thread-per-rank
+aegisq benchmark weak --circuit ising --qubits 20 --ranks 1,2,4,8 \
+    --thread-policy one-thread-per-rank
+aegisq benchmark report
+```
+
+Each sweep launches one `mpirun` per configuration, because the world size is
+fixed when `mpirun` starts.
 
 ## What "measured communication" means
 
