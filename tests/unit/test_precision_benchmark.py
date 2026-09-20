@@ -102,3 +102,40 @@ def test_rows_carry_provenance_and_write_to_csv(tmp_path):
     assert contents[0] == PRECISION_RAW_FIELDS
     assert len(contents) == 2
     assert rows[0]["git_commit"]
+
+
+def test_infidelity_is_never_negative():
+    """`1 - |<a|b>|^2` evaluated directly returns noise near one, including
+    negative values, which are not possible fidelities."""
+    from aegisq.benchmark.precision import _fidelity
+
+    state = np.zeros(1 << 8, dtype=np.complex128)
+    state[3] = 1.0
+    nudged = state.copy()
+    nudged[3] = 1.0 - 1e-15
+
+    for reference, candidate in ((state, state), (state, nudged), (nudged, state)):
+        fidelity, infidelity = _fidelity(reference, candidate)
+        assert infidelity >= 0.0
+        assert 0.0 <= fidelity <= 1.0
+
+
+def test_infidelity_matches_the_direct_formula_when_that_is_resolvable():
+    """For a difference big enough to survive the subtraction, both agree."""
+    from aegisq.benchmark.precision import _fidelity
+
+    a = np.zeros(4, dtype=np.complex128)
+    a[0] = 1.0
+    b = np.array([np.cos(0.1), np.sin(0.1), 0, 0], dtype=np.complex128)
+
+    _, infidelity = _fidelity(a, b)
+    direct = 1 - abs(np.vdot(a, b)) ** 2
+    assert infidelity == pytest.approx(direct, rel=1e-9)
+
+
+def test_global_phase_does_not_count_as_error():
+    from aegisq.benchmark.precision import _fidelity
+
+    a = np.array([0.6, 0.8, 0, 0], dtype=np.complex128)
+    _, infidelity = _fidelity(a, a * np.exp(1j * 1.234))
+    assert infidelity < 1e-25

@@ -14,8 +14,10 @@ sides on the same circuits:
 * the fidelity of the fp32 state against the fp64 one, and the largest
   amplitude discrepancy, as a function of depth.
 
-Fidelity is `|<psi32|psi64>|^2`, which is the quantity that governs how
-different the two would look to any measurement.
+Fidelity is `|<psi32|psi64>|^2`, which governs how different the two would
+look to any measurement. It is never computed by subtracting from one: at
+these error levels that subtraction is pure cancellation, and it produced a
+negative infidelity before being replaced. See `_fidelity`.
 """
 
 from __future__ import annotations
@@ -65,6 +67,39 @@ def _environment() -> dict[str, Any]:
     }
 
 
+def _fidelity(reference, candidate) -> tuple[float, float]:
+    """Fidelity and infidelity, computed so that the small one is meaningful.
+
+    `1 - |<a|b>|^2` cannot be evaluated directly when the fidelity is within
+    rounding distance of one: the subtraction cancels and the result is
+    noise -- including, as happened here, a negative infidelity, which is not
+    a possible value.
+
+    Instead the phase-aligned distance is accumulated as a sum of
+    non-negative terms,
+
+        d^2 = || a_hat - b_hat e^{-i theta} ||^2 = 2 (1 - |c|),  c = <a_hat|b_hat>
+
+    from which the infidelity follows as `d^2 - d^4 / 4`. Every step is well
+    conditioned, so an infidelity of 1e-14 means 1e-14.
+    """
+    import numpy as np
+
+    a = np.asarray(reference, dtype=np.complex128)
+    b = np.asarray(candidate, dtype=np.complex128)
+    a = a / np.sqrt(np.vdot(a, a).real)
+    b = b / np.sqrt(np.vdot(b, b).real)
+
+    overlap = np.vdot(a, b)
+    magnitude = abs(overlap)
+    if magnitude > 0:
+        b = b * (np.conjugate(overlap) / magnitude)
+
+    distance_squared = float(np.sum(np.abs(a - b) ** 2))
+    infidelity = max(0.0, distance_squared - distance_squared**2 / 4.0)
+    return 1.0 - infidelity, infidelity
+
+
 def compare_precisions(circuit, family: str = "random", seed: int = 0) -> dict[str, Any]:
     """Run one circuit at both precisions and measure the difference."""
     import numpy as np
@@ -82,10 +117,7 @@ def compare_precisions(circuit, family: str = "random", seed: int = 0) -> dict[s
     double = np.asarray(double, dtype=np.complex128)
     single = np.asarray(single, dtype=np.complex128)
 
-    overlap = np.vdot(double, single)
-    fidelity = float(
-        abs(overlap) ** 2 / (np.vdot(double, double).real * np.vdot(single, single).real)
-    )
+    fidelity, infidelity = _fidelity(double, single)
 
     return {
         **_environment(),
@@ -97,10 +129,9 @@ def compare_precisions(circuit, family: str = "random", seed: int = 0) -> dict[s
         "two_qubit_gates": circuit.two_qubit_gate_count(),
         "seed": seed,
         "fidelity": fidelity,
-        # Stored explicitly: 1 - fidelity is the quantity that actually
-        # varies, and it disappears into rounding if a reader has to compute
-        # it from a fidelity printed to a handful of decimals.
-        "infidelity": 1.0 - fidelity,
+        # Computed directly rather than as 1 minus the fidelity; see
+        # `_fidelity` for why that subtraction cannot be done at this scale.
+        "infidelity": infidelity,
         "max_amplitude_error": float(np.abs(double - single).max()),
         "norm_error": float(abs(1.0 - np.vdot(single, single).real)),
         "fp64_seconds": fp64_seconds,
@@ -146,10 +177,10 @@ def run_suite(
             recent = [r for r in rows if r["circuit_family"] == "random" and r["depth"] > 0][
                 -samples:
             ]
-            worst = min(r["fidelity"] for r in recent)
+            worst = max(r["infidelity"] for r in recent)
             print(
                 f"  random, {depth:3d} layers ({recent[0]['gates']:5d} gates): "
-                f"worst infidelity {1 - worst:.3e}, "
+                f"worst infidelity {worst:.3e}, "
                 f"max amplitude error {max(r['max_amplitude_error'] for r in recent):.3e}"
             )
 
@@ -164,7 +195,7 @@ def run_suite(
         if verbose:
             print(
                 f"  {family:7s} ({row['gates']:5d} gates, depth {row['depth']:4d}): "
-                f"infidelity {1 - row['fidelity']:.3e}, "
+                f"infidelity {row['infidelity']:.3e}, "
                 f"max amplitude error {row['max_amplitude_error']:.3e}"
             )
 
