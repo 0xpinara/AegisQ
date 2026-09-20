@@ -109,7 +109,7 @@ aegisq doctor   # report MPI / OpenMP / liboqs / Qiskit availability
 
 <!-- BENCHMARK-RESULTS:START -->
 
-All figures below were measured on **Apple M2 (8 logical cores)**, macOS-15.6.1-arm64-arm-64bit, nan, AegisQ 0.1.0 at commit `dabb38de9c99`. They describe that host and are not a claim about cluster hardware.
+All figures below were measured on **Apple M2 (8.0 logical cores)**, macOS-15.6.1-arm64-arm-64bit, nan, AegisQ 0.1.0 at commit `dabb38de9c99`. They describe that host and are not a claim about cluster hardware.
 
 ### Communication-aware placement, 8 ranks, 20 qubits
 
@@ -157,6 +157,14 @@ Placement and fusion are not independent either: for `random` the pair removes 5
 | qft | 22 | 8 | 2.319 | 2.35x | 29% |
 
 ![Strong scaling](benchmarks/plots/strong_scaling.png)
+
+### Is the fallback search good enough?
+
+The placement search is exhaustive while the candidate count fits a budget and falls back beyond it. Two facts make the fallback safer than "not guaranteed optimal" suggests.
+
+Every cost rule except `swap` depends on one qubit's membership: a single-qubit gate costs if *its* qubit is global, a `cx` costs if *its target* is. `swap` costs if *either* operand is, and an OR is not a sum. So for a circuit without `swap` gates the objective is linear in the global set, and sorting the per-qubit costs gives the optimum outright — no search.
+
+For the rest, measured: across 99 sampled configurations, 93 of which genuinely needed the heuristic, it matched the exhaustive optimum **99 times out of 99** (worst gap 0.00%) while running up to 40x faster.
 
 ### Are the local kernels any good?
 

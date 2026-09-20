@@ -315,6 +315,22 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
         print("  aegisq benchmark report")
         return 0
 
+    if args.benchmark_command == "placement":
+        from aegisq.benchmark.placement_quality import run_suite as run_placement
+
+        output = args.output or default_raw_path("placement")
+        print(f"Writing raw placement-search measurements to {output}")
+        run_placement(
+            output,
+            qubits=args.qubits,
+            ranks=_parse_rank_list(args.ranks),
+            samples=args.samples,
+        )
+        print()
+        print("Raw data written. Regenerate tables with:")
+        print("  aegisq benchmark report")
+        return 0
+
     if args.benchmark_command == "kernels":
         from aegisq.benchmark.kernels import run_suite as run_kernels
 
@@ -927,6 +943,16 @@ def build_parser() -> argparse.ArgumentParser:
     pqc_cmd.add_argument("--envelope-qubits", type=int, default=20)
     pqc_cmd.add_argument("--output", type=Path)
     pqc_cmd.set_defaults(func=_cmd_benchmark)
+
+    placement_cmd = benchmark_sub.add_parser(
+        "placement",
+        help="compare the fallback placement search against the exhaustive optimum",
+    )
+    placement_cmd.add_argument("--qubits", type=int, default=18)
+    placement_cmd.add_argument("--ranks", default="4,8,16")
+    placement_cmd.add_argument("--samples", type=int, default=30)
+    placement_cmd.add_argument("--output", type=Path)
+    placement_cmd.set_defaults(func=_cmd_benchmark)
 
     kernels_cmd = benchmark_sub.add_parser(
         "kernels",

@@ -106,6 +106,11 @@ class MappingResult:
         ]
         if not self.optimal_for_cost_model:
             lines.append("Note: heuristic search; the result is not guaranteed optimal.")
+        elif self.strategy.startswith("linear"):
+            lines.append(
+                "Note: the circuit has no SWAP gates, so the objective is separable and "
+                "this assignment is optimal by sorting rather than by search."
+            )
         lines.append(
             "These are cost-model predictions. Measured traffic is reported by "
             "`aegisq benchmark` runs."
@@ -174,6 +179,14 @@ class StaticCommunicationMapper:
             best, evaluated = self._exhaustive(profile, p)
             strategy = "exhaustive"
             optimal = True
+        elif self._is_separable(circuit):
+            # No SWAP gates, so the objective is a sum of per-qubit terms and
+            # sorting gives the optimum outright. This is not a fallback: it
+            # is exact for the primary objective, and it turns a search over
+            # C(n, p) subsets into a sort.
+            best, evaluated = self._linear_optimum(profile, p)
+            strategy = "linear (separable objective)"
+            optimal = True
         else:
             best, evaluated = self._greedy_with_local_search(profile, p)
             strategy = "greedy + pairwise local search"
@@ -217,6 +230,29 @@ class StaticCommunicationMapper:
                 best, best_score = candidate, score
         assert best is not None
         return best, evaluated
+
+    def _is_separable(self, circuit: Circuit) -> bool:
+        """Is the byte objective a sum of independent per-qubit terms?
+
+        Every cost rule except SWAP depends on membership of a single qubit:
+        a non-diagonal single-qubit gate costs a full shard if *its* qubit is
+        global, and a CX costs half a shard if *its target* is global, whether
+        or not the control is. SWAP is the exception — it costs if *either*
+        operand is global — and an OR is not a sum.
+
+        With no SWAP in the circuit the objective is therefore linear in the
+        indicator of the global set, and the cheapest `p` qubits are the
+        optimal set. No search is needed at all.
+        """
+        return all(gate.opcode != "swap" for gate in circuit)
+
+    def _linear_optimum(self, profile: CircuitCostProfile, p: int) -> tuple[tuple[int, ...], int]:
+        """Optimal global set for a separable objective, by sorting."""
+        ranked = sorted(
+            range(self.model.num_qubits),
+            key=lambda qubit: (profile.bytes_for((qubit,)), profile.exchanges_for((qubit,))),
+        )
+        return tuple(sorted(ranked[:p])), self.model.num_qubits
 
     def _greedy_with_local_search(
         self, profile: CircuitCostProfile, p: int

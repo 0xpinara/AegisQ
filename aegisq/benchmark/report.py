@@ -677,6 +677,37 @@ def plot_kernels(table: pd.DataFrame, path: Path, host: str = "") -> Path | None
     return _save(fig, path)
 
 
+def load_placement_quality(source: Path | None = None) -> pd.DataFrame:
+    source = source or RAW_DIR
+    paths = sorted(source.glob("placement_*.csv")) if source.is_dir() else [source]
+    frames = [pd.read_csv(path) for path in paths if path.exists()]
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+def placement_quality_table(data: pd.DataFrame) -> pd.DataFrame:
+    """How often the fallback search matches the exhaustive optimum."""
+    if data.empty:
+        return data
+    return (
+        data.groupby(["ranks", "qubits"], as_index=False)
+        .agg(
+            samples=("gap", "count"),
+            candidates=("candidates", "max"),
+            found_optimum=("found_optimum", "sum"),
+            worst_gap=("gap", "max"),
+            median_speedup=("speedup", "median"),
+            heuristic_samples=(
+                "fallback_strategy",
+                lambda column: int((column.str.startswith("greedy")).sum()),
+            ),
+        )
+        .sort_values(["qubits", "ranks"])
+        .reset_index(drop=True)
+    )
+
+
 def prediction_accuracy(data: pd.DataFrame) -> pd.DataFrame:
     """Does the cost model's prediction match what was measured?"""
     summary = summarise(data)
@@ -1048,6 +1079,11 @@ def write_reports(
         if figure:
             written["kernel_bandwidth_plot"] = figure
 
+    placement = placement_quality_table(load_placement_quality(raw))
+    if not placement.empty:
+        placement.to_csv(processed / "placement_quality.csv", index=False)
+        written["placement_quality"] = processed / "placement_quality.csv"
+
     search = search_table(load_search(raw))
     if not search.empty:
         search.to_csv(processed / "grover_scaling.csv", index=False)
@@ -1122,6 +1158,23 @@ def markdown_summary(raw: Path | None = None) -> str:
                 f"| {row.circuit_family} | {row.thread_policy} | {row.ranks} | {row.qubits} | "
                 f"{row.amplitudes_per_rank:,} | {row.wall_best_s:.3f} | "
                 f"{row.efficiency * 100:.0f}% |"
+            )
+        lines.append("")
+
+    placement = placement_quality_table(load_placement_quality(raw))
+    if not placement.empty:
+        lines.append("## Placement search quality (measured)")
+        lines.append("")
+        lines.append(
+            "| qubits | ranks | candidate sets | samples | needing the heuristic | "
+            "optimum found | worst gap | median speedup |"
+        )
+        lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|")
+        for row in placement.itertuples():
+            lines.append(
+                f"| {row.qubits} | {row.ranks} | {row.candidates:,} | {row.samples} | "
+                f"{row.heuristic_samples} | {row.found_optimum}/{row.samples} | "
+                f"{row.worst_gap * 100:.2f}% | {row.median_speedup:.0f}x |"
             )
         lines.append("")
 

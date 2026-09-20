@@ -195,6 +195,37 @@ def build_block() -> str:
             lines.append("![Strong scaling](benchmarks/plots/strong_scaling.png)")
             lines.append("")
 
+    placement = report_module.placement_quality_table(report_module.load_placement_quality())
+    if not placement.empty:
+        total = int(placement["samples"].sum())
+        heuristic = int(placement["heuristic_samples"].sum())
+        found = int(placement["found_optimum"].sum())
+        worst = float(placement["worst_gap"].max())
+        fastest = float(placement["median_speedup"].max())
+        lines.append("### Is the fallback search good enough?")
+        lines.append("")
+        lines.append(
+            "The placement search is exhaustive while the candidate count fits a budget "
+            "and falls back beyond it. Two facts make the fallback safer than "
+            '"not guaranteed optimal" suggests.'
+        )
+        lines.append("")
+        lines.append(
+            "Every cost rule except `swap` depends on one qubit's membership: a "
+            "single-qubit gate costs if *its* qubit is global, a `cx` costs if *its "
+            "target* is. `swap` costs if *either* operand is, and an OR is not a sum. "
+            "So for a circuit without `swap` gates the objective is linear in the global "
+            "set, and sorting the per-qubit costs gives the optimum outright — no search."
+        )
+        lines.append("")
+        lines.append(
+            f"For the rest, measured: across {total} sampled configurations, "
+            f"{heuristic} of which genuinely needed the heuristic, it matched the "
+            f"exhaustive optimum **{found} times out of {total}** (worst gap "
+            f"{worst * 100:.2f}%) while running up to {fastest:.0f}x faster."
+        )
+        lines.append("")
+
     kernels = report_module.kernel_table(report_module.load_kernels())
     if not kernels.empty:
         peak_threads = int(kernels["threads"].max())

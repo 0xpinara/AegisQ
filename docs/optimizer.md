@@ -79,6 +79,28 @@ The objective is lexicographic: **bytes first, message count as a tiebreak**.
 Bytes are what placement controls; the message count separates two placements
 that move identical volume in different numbers of transfers.
 
+### Why the fallback is rarely a compromise
+
+Look at what the cost rules depend on. A non-diagonal single-qubit gate costs
+a full shard if *its* qubit is global. A `cx` costs half a shard if *its
+target* is global — whether or not the control is, since the byte volume is
+the same either way. Both are functions of one qubit's membership.
+
+`swap` is the exception: it costs if *either* operand is global, and an OR is
+not a sum.
+
+So for a circuit containing no `swap` gates the objective is **linear** in the
+indicator of the global set, and the optimum is simply the `p` qubits with the
+smallest individual costs. The mapper detects this and sorts instead of
+searching, reporting the strategy as `linear (separable objective)` and
+marking the result optimal — which it is, not approximately.
+
+Where `swap` gates do appear the problem is genuinely combinatorial and the
+greedy fallback could in principle settle for a local optimum. Measured, it
+does not: across sampled random circuits that all contain swaps, at 4, 8 and
+16 ranks, it matched the exhaustive optimum every time while running 3–40x
+faster. That is an empirical result on these circuit families, not a proof.
+
 ### The result is applied
 
 `MappingResult.mapping` is a logical-to-physical permutation, and it is the

@@ -7,6 +7,15 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Separable-objective fast path** in the placement search. Every cost rule
+  except `swap` depends on a single qubit's membership of the global set, so a
+  circuit without `swap` gates has a linear objective and the optimum is a
+  sort rather than a search. Reported as `linear (separable objective)` and
+  marked optimal, because it is.
+- **`aegisq benchmark placement`**: measures the fallback search against the
+  exhaustive optimum. Across 99 sampled configurations at 4, 8 and 16 ranks,
+  93 of which needed the heuristic, it matched the optimum every time while
+  running 3-40x faster.
 - **Local kernel bandwidth measurement** (`aegisq benchmark kernels`): each
   kernel is timed and expressed as achieved GB/s against a STREAM-style
   reference measured the same way, including an in-place shape that matches a

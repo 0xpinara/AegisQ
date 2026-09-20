@@ -322,6 +322,28 @@ socket, where a ``transfer'' is a memory copy.
 The cost model predicted the byte count and the message count \emph{exactly} in
 all 42 distributed configurations measured.
 
+\subsection{When is the search necessary?}
+
+The cost rules are worth reading for what they depend on. A non-diagonal
+single-qubit gate costs a full shard if \emph{its} qubit is global; a
+\texttt{cx} costs half a shard if \emph{its target} is global, irrespective
+of the control, because the byte volume is the same either way. Both depend on
+one qubit's membership of the global set. \texttt{swap} is the exception: it
+costs if \emph{either} operand is global, and a disjunction is not a sum.
+
+It follows that for a circuit with no \texttt{swap} gates the objective is
+linear in the indicator of the global set, and the optimum is the $p$ qubits
+with the smallest individual costs --- obtainable by sorting, with no search
+at all. The mapper detects this case and reports it as such rather than
+running a search it does not need.
+
+Where \texttt{swap} gates appear the problem is combinatorial and the greedy
+fallback could settle for a local optimum. Across 99 sampled configurations at
+4, 8 and 16 ranks, 93 of which required the heuristic, it matched the
+exhaustive optimum in every case while running $3$--$40\times$ faster. That is
+an empirical result on these circuit families rather than a guarantee, and it
+is reported as one.
+
 \subsection{A second lever: gate fusion}
 
 Placement decides which gates communicate; it cannot reduce how often a given

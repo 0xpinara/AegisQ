@@ -1,7 +1,7 @@
 ## Measurement host
 
 - host: `pias-MacBook-Pro.local`
-- CPU: Apple M2 (8 logical cores)
+- CPU: Apple M2 (8.0 logical cores)
 - OS: macOS-15.6.1-arm64-arm-64bit
 - compiler: AppleClang 17.0.0.17000603
 - MPI: nan
@@ -52,6 +52,14 @@
 | ising | one-thread-per-rank | 2 | 21 | 1,048,576 | 0.483 | 86% |
 | ising | one-thread-per-rank | 4 | 22 | 1,048,576 | 0.715 | 58% |
 | ising | one-thread-per-rank | 8 | 23 | 1,048,576 | 1.647 | 25% |
+
+## Placement search quality (measured)
+
+| qubits | ranks | candidate sets | samples | needing the heuristic | optimum found | worst gap | median speedup |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 18 | 4 | 153 | 33 | 31 | 33/33 | 0.00% | 3x |
+| 18 | 8 | 816 | 33 | 31 | 33/33 | 0.00% | 12x |
+| 18 | 16 | 3,060 | 33 | 31 | 33/33 | 0.00% | 40x |
 
 ## Local kernel bandwidth (measured)
 
