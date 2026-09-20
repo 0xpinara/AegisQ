@@ -8,7 +8,6 @@ Python processes, CI jobs and the packaging tests.
 
 from __future__ import annotations
 
-import atexit
 from typing import Any
 
 from aegisq import native_core
@@ -18,8 +17,6 @@ _PRECISION_CLASSES = {
     "fp64": "DistributedStateVectorF64",
     "fp32": "DistributedStateVectorF32",
 }
-
-_finalize_registered = False
 
 
 def _core():
@@ -37,18 +34,27 @@ def mpi_compiled() -> bool:
     return bool(core is not None and core.mpi_compiled())
 
 
-def _ensure_finalize_registered() -> None:
-    global _finalize_registered
-    if not _finalize_registered:
-        atexit.register(lambda: native_core().mpi_finalize())
-        _finalize_registered = True
+# MPI_Finalize is deliberately *not* registered here.
+#
+# The native core calls `std::atexit(&MpiContext::finalize)` from the same
+# place it calls `MPI_Init_thread`, so the two are registered together and
+# only when this process is the one that initialised MPI. A second
+# registration on the Python side was redundant and, worse, earlier:
+# Python's `atexit` handlers run during interpreter shutdown, ahead of the
+# C-level ones, so MPI could be finalised while objects that still refer to
+# the MPI world were waiting to be collected. MPICH treats an MPI call after
+# `MPI_Finalize` as fatal and aborts the rank, which is one candidate
+# explanation for this suite's intermittent MPICH failures; Open MPI is more
+# forgiving, and passes.
+#
+# Finalising only what we initialised, at the last possible moment, is the
+# correct lifecycle regardless of whether it turns out to be that bug.
 
 
 def world_size() -> int:
     """Number of ranks in the world communicator (1 without MPI)."""
     if not mpi_compiled():
         return 1
-    _ensure_finalize_registered()
     return int(_core().mpi_world_size())
 
 
@@ -56,7 +62,6 @@ def rank() -> int:
     """Rank of this process (0 without MPI)."""
     if not mpi_compiled():
         return 0
-    _ensure_finalize_registered()
     return int(_core().mpi_rank())
 
 
@@ -67,7 +72,6 @@ def is_distributed() -> bool:
 
 def barrier() -> None:
     if mpi_compiled():
-        _ensure_finalize_registered()
         _core().mpi_barrier()
 
 
@@ -111,7 +115,6 @@ def new_distributed_state(
         class_name = _PRECISION_CLASSES[precision]
     except KeyError:
         raise ValueError(f"unknown precision {precision!r}; use 'fp64' or 'fp32'") from None
-    _ensure_finalize_registered()
     cls = getattr(core, class_name)
     if mapping is None:
         return cls(num_qubits)

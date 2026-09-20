@@ -59,15 +59,49 @@ echo "interpreter: $PYTHON"
 echo "launcher: $(command -v mpirun)"
 echo "extra flags: ${OVERSUBSCRIBE_FLAG:-<none>}"
 
+# Where a failing run's output is kept. Writing to a file rather than
+# relying on the pipe matters: when a rank dies from a signal, some process
+# managers discard whatever it had buffered, and this suite has twice
+# produced a CI failure whose entire diagnostic content was the word
+# FAILED. Anything written before the crash survives on disk.
+LOGDIR="$(mktemp -d)"
+trap 'rm -rf "$LOGDIR"' EXIT
+
+describe_status() {
+    # Distinguish "pytest reported failures" from "the rank was killed",
+    # which are different bugs and were indistinguishable before.
+    local code="$1"
+    if [ "$code" -gt 128 ]; then
+        echo "exit $code (killed by signal $((code - 128)))"
+    else
+        echo "exit $code"
+    fi
+}
+
 status=0
 for np in $(echo "$RANKS" | tr ',' ' '); do
-    echo "==> mpirun ${OVERSUBSCRIBE_FLAG} -np $np pytest tests/mpi"
+    echo "==> preflight: can $np rank(s) start at all?"
     # shellcheck disable=SC2086
-    # -u keeps stdout unbuffered. Without it, a rank that dies takes the
-    # whole run's buffered output with it, which is how a CI failure once
-    # arrived with no diagnostic text at all.
-    if ! mpirun $OVERSUBSCRIBE_FLAG -np "$np" "$PYTHON" -u -m pytest tests/mpi -q -p no:cacheprovider; then
-        echo "    FAILED at $np rank(s)" >&2
+    if ! mpirun $OVERSUBSCRIBE_FLAG -np "$np" "$PYTHON" -u -c \
+        'from aegisq.runtime import distributed as d; print(f"  rank {d.rank()} of {d.world_size()} up", flush=True)'; then
+        echo "    FAILED to start $np rank(s); the launcher or the build is the problem" >&2
+        status=1
+        continue
+    fi
+
+    echo "==> mpirun ${OVERSUBSCRIBE_FLAG} -np $np pytest tests/mpi"
+    log="$LOGDIR/ranks-$np.log"
+    # -u keeps stdout unbuffered, so a rank that dies still leaves behind
+    # everything it had printed up to that point.
+    # shellcheck disable=SC2086
+    mpirun $OVERSUBSCRIBE_FLAG -np "$np" "$PYTHON" -u -m pytest tests/mpi \
+        -q -p no:cacheprovider >"$log" 2>&1
+    code=$?
+    cat "$log"
+    if [ "$code" -ne 0 ]; then
+        echo "    FAILED at $np rank(s): $(describe_status $code)" >&2
+        echo "    output above is $(wc -l <"$log" | tr -d ' ') line(s); empty output with a" >&2
+        echo "    signal means the ranks died outside pytest -- start or teardown." >&2
         status=1
     fi
 done
