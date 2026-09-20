@@ -37,13 +37,20 @@ CONFIG_KEYS = [
 ]
 
 
+#: Raw files whose schema is not the simulation-run schema. Each has its own
+#: loader; mixing them into the main frame would put rows with no wall time or
+#: rank count into every aggregate.
+#:
+#: Kept as a named constant rather than an inline condition because it has
+#: been forgotten twice when a new experiment was added.
+SPECIALISED_RAW_PREFIXES = ("pqc_", "search_", "kernels_", "placement_")
+
+
 def load_raw(source: Path | None = None) -> pd.DataFrame:
-    """Read every raw CSV under `source` (default `benchmarks/raw`)."""
+    """Read the simulation-run CSVs under `source` (default `benchmarks/raw`)."""
     source = source or RAW_DIR
-    # The post-quantum and search files have their own schemas and are loaded
-    # separately.
     paths = (
-        [p for p in sorted(source.glob("*.csv")) if not p.name.startswith(("pqc_", "search_"))]
+        [p for p in sorted(source.glob("*.csv")) if not p.name.startswith(SPECIALISED_RAW_PREFIXES)]
         if source.is_dir()
         else [source]
     )
@@ -500,6 +507,7 @@ def lever_table(data: pd.DataFrame) -> pd.DataFrame:
             "placement_only": ("optimized", "off"),
             "windowed_only": ("windowed", "off"),
             "both": ("optimized", "on"),
+            "windowed_fusion": ("windowed", "on"),
         }.items():
             measured = value(mapping, fusion, "bytes_sent")
             wall = value(mapping, fusion, "wall_best")
@@ -523,6 +531,7 @@ def plot_levers(table: pd.DataFrame, path: Path, host: str = "") -> Path | None:
             "placement_only_bytes",
             "windowed_only_bytes",
             "both_bytes",
+            "windowed_fusion_bytes",
         )
         if column in table.columns and not table[column].isna().all()
     ]
@@ -541,6 +550,7 @@ def plot_levers(table: pd.DataFrame, path: Path, host: str = "") -> Path | None:
         "placement_only_bytes": "static placement",
         "windowed_only_bytes": "windowed placement",
         "both_bytes": "placement + fusion",
+        "windowed_fusion_bytes": "windowed + fusion",
     }
     series = [("baseline_bytes", "default placement", SERIES_COLORS[0])]
     series += [

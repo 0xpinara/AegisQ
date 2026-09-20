@@ -24,10 +24,11 @@ if ! "$PYTHON" -c "import aegisq.benchmark.runner" >/dev/null 2>&1; then
     exit 1
 fi
 
-echo "==> placement comparison (${QUBITS} qubits, ranks ${RANKS})"
+echo "==> optimisation levers (${QUBITS} qubits, ranks ${RANKS})"
 "$PYTHON" -m aegisq.cli.main benchmark mapping \
     --circuits ghz,qft,ising,random,grover \
     --qubits "$QUBITS" --ranks "$RANKS" --repeats "$REPEATS" \
+    --levers placement,windowed,fusion \
     --option grover:iterations=2
 
 echo "==> strong scaling (${SCALING_QUBITS} qubits, ranks ${SCALING_RANKS})"
@@ -41,6 +42,12 @@ echo "==> weak scaling"
 "$PYTHON" -m aegisq.cli.main benchmark weak \
     --circuit ising --qubits $((SCALING_QUBITS - 2)) --ranks "$SCALING_RANKS" \
     --repeats "$REPEATS" --thread-policy one-thread-per-rank
+
+echo "==> local kernel bandwidth"
+"$PYTHON" -m aegisq.cli.main benchmark kernels --qubits "$SCALING_QUBITS" --threads 1,2,4,8
+
+echo "==> placement search quality"
+"$PYTHON" -m aegisq.cli.main benchmark placement --qubits 18 --ranks 4,8,16 --samples 30
 
 echo "==> post-quantum primitives and envelope"
 "$PYTHON" -m aegisq.cli.main benchmark pqc --iterations 1000

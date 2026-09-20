@@ -254,3 +254,37 @@ def test_readme_results_block_matches_the_committed_measurements():
         check=False,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+def test_specialised_raw_files_stay_out_of_the_main_frame(tmp_path):
+    """Each experiment family has its own schema and its own loader.
+
+    Mixing them would put rows with no wall time or rank count into every
+    aggregate. The exclusion list has been forgotten twice when adding an
+    experiment, so it is asserted rather than trusted.
+    """
+    from aegisq.benchmark.report import SPECIALISED_RAW_PREFIXES, load_raw
+
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    synthetic_raw().to_csv(raw / "strong_scaling_x.csv", index=False)
+    for prefix in SPECIALISED_RAW_PREFIXES:
+        other = synthetic_raw().head(1).copy()
+        other["experiment"] = f"{prefix}experiment"
+        other.to_csv(raw / f"{prefix}x.csv", index=False)
+
+    loaded = load_raw(raw)
+    assert set(loaded["experiment"].unique()) == {"strong_scaling", "mapping_comparison"}
+
+
+def test_every_specialised_loader_has_a_matching_prefix():
+    """A new experiment must be added to the exclusion list, not just given a loader."""
+    from aegisq.benchmark import report
+
+    loaders = {
+        "pqc_": report.load_pqc,
+        "search_": report.load_search,
+        "kernels_": report.load_kernels,
+        "placement_": report.load_placement_quality,
+    }
+    assert set(loaders) == set(report.SPECIALISED_RAW_PREFIXES)
