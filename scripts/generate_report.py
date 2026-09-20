@@ -65,13 +65,25 @@ def build_block() -> str:
         report_module.load_search(),
         report_module.load_kernels(),
         report_module.load_placement_quality(),
+        report_module.load_precision(),
     ]
     commits = sorted(set().union(*(collect(frame, "git_commit") for frame in everything)))
-    dirty = any(
-        bool(frame["git_dirty"].fillna(0).astype(float).max())
-        for frame in everything
-        if frame is not None and not frame.empty and "git_dirty" in frame.columns
-    )
+
+    def measured_dirty(frame) -> bool:
+        """Was this frame measured from a modified tree -- or can't we tell?
+
+        A missing `git_dirty` column is not evidence of cleanliness, and
+        treating it as such is how five of the six suites went a whole
+        release recording numbers that nothing could vouch for. Data that
+        cannot answer the question counts as a warning.
+        """
+        if frame is None or frame.empty:
+            return False
+        if "git_dirty" not in frame.columns:
+            return True
+        return bool(frame["git_dirty"].fillna(1).astype(float).max())
+
+    dirty = any(measured_dirty(frame) for frame in everything)
 
     lines: list[str] = [START, ""]
     if len(commits) == 1:

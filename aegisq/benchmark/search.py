@@ -32,6 +32,7 @@ SEARCH_RAW_FIELDS = [
     "os",
     "aegisq_version",
     "git_commit",
+    "git_dirty",
     "experiment",
     "search_bits",
     "search_space",
@@ -67,13 +68,10 @@ def measure_grover(
     backend: str = "cpp",
 ) -> dict[str, Any]:
     """Run one Grover search and record queries and measured success."""
-    import platform
-    import socket
 
-    from aegisq import __version__
     from aegisq.algorithms.grover import grover, optimal_iterations
-    from aegisq.benchmark.runner import git_commit
-    from aegisq.runtime import Simulator, hardware
+    from aegisq.benchmark.runner import provenance_row
+    from aegisq.runtime import Simulator
 
     space = 2**search_bits
     marked = (space - 5) % space if marked is None else marked % space
@@ -86,15 +84,9 @@ def measure_grover(
 
     key = format(marked, f"0{search_bits}b")
     hits = result.counts.get(key, 0)
-    commit, _ = git_commit()
 
     return {
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "hostname": socket.gethostname(),
-        "cpu_model": hardware.cpu_info().extra.get("model", "unknown"),
-        "os": platform.platform(),
-        "aegisq_version": __version__,
-        "git_commit": commit,
+        **provenance_row(),
         "experiment": "grover_scaling",
         "search_bits": search_bits,
         "search_space": space,

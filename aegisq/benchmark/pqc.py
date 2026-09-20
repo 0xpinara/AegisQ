@@ -46,6 +46,7 @@ PQC_RAW_FIELDS = [
     "liboqs_version",
     "aegisq_version",
     "git_commit",
+    "git_dirty",
     "experiment",
     "algorithm",
     "operation",
@@ -101,12 +102,7 @@ def time_operation(callable_: Callable[[], Any], iterations: int, warmup: int = 
 
 
 def _environment() -> dict[str, Any]:
-    import platform
-    import socket
-
-    from aegisq import __version__
-    from aegisq.benchmark.runner import git_commit
-    from aegisq.runtime import hardware
+    from aegisq.benchmark.runner import provenance_row
 
     try:
         import oqs
@@ -115,19 +111,9 @@ def _environment() -> dict[str, Any]:
     except Exception:  # pragma: no cover - environment dependent
         liboqs_version = "unavailable"
 
-    cpu = hardware.cpu_info()
-    commit, _ = git_commit()
-    return {
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "hostname": socket.gethostname(),
-        "cpu_model": cpu.extra.get("model", "unknown"),
-        "logical_cores": cpu.extra.get("logical_cores", 0),
-        "os": platform.platform(),
-        "python_version": platform.python_version(),
-        "liboqs_version": liboqs_version,
-        "aegisq_version": __version__,
-        "git_commit": commit,
-    }
+    # Which liboqs produced the timings is the one provenance column the
+    # shared row cannot know about, and the one that matters most here.
+    return {**provenance_row(), "liboqs_version": liboqs_version}
 
 
 def measure_kem(algorithm: str, iterations: int = 1000) -> list[dict[str, Any]]:

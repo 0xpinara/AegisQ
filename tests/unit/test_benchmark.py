@@ -339,3 +339,64 @@ def test_dirtiness_still_reports_modified_source(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     assert runner.git_commit() == ("abc123", True)
+
+
+def test_raw_field_lists_carry_provenance():
+    """Every suite records where its numbers came from, in the same columns.
+
+    Five of the six suites had written their own copy of the provenance
+    block and every one of them dropped `git_dirty`, so most of the
+    repository's raw data could not say whether it had been measured from a
+    modified tree -- and the report's warning about exactly that could only
+    see the three files that happened to keep the column.
+    """
+    from aegisq.benchmark import kernels, pqc, precision, runner, search
+    from aegisq.benchmark import placement_quality as placement
+
+    field_lists = {
+        "simulation": runner.RAW_FIELDS,
+        "pqc": pqc.PQC_RAW_FIELDS,
+        "search": search.SEARCH_RAW_FIELDS,
+        "kernels": kernels.KERNEL_RAW_FIELDS,
+        "placement": placement.PLACEMENT_RAW_FIELDS,
+        "precision": precision.PRECISION_RAW_FIELDS,
+    }
+    for name, fields in field_lists.items():
+        missing = [column for column in runner.PROVENANCE_FIELDS if column not in fields]
+        assert not missing, f"{name} raw file would omit {missing}"
+
+
+def test_every_suite_populates_the_provenance_columns():
+    """Declaring the columns is not enough -- they have to be filled in.
+
+    Asserted against the suites' own environment helpers rather than
+    against `provenance_row`, so that a suite which stops delegating to it
+    still has to produce the same columns.
+    """
+    from aegisq.benchmark import kernels, pqc, precision, runner
+    from aegisq.benchmark import placement_quality as placement
+
+    rows = {
+        "simulation": runner.environment_row(),
+        "pqc": pqc._environment(),
+        "kernels": kernels._environment(),
+        "placement": placement._environment(),
+        "precision": precision._environment(),
+        # search builds its row inline as part of a measurement, so the
+        # shared helper is the only thing available to check here.
+        "search": runner.provenance_row(),
+    }
+    for name, row in rows.items():
+        missing = [column for column in runner.PROVENANCE_FIELDS if column not in row]
+        assert not missing, f"{name} environment omits {missing}"
+        assert row["git_dirty"] in (0, 1), f"{name} recorded a non-boolean dirty flag"
+
+
+def test_search_rows_record_provenance():
+    """The search suite builds its row inline, so it is checked end to end."""
+    from aegisq.benchmark import search
+    from aegisq.benchmark.runner import PROVENANCE_FIELDS
+
+    row = search.measure_grover(2, shots=64, seed=7)
+    missing = [column for column in PROVENANCE_FIELDS if column not in row]
+    assert not missing, f"search row omits {missing}"

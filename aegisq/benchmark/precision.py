@@ -31,8 +31,10 @@ PRECISION_RAW_FIELDS = [
     "timestamp",
     "hostname",
     "cpu_model",
+    "os",
     "aegisq_version",
     "git_commit",
+    "git_dirty",
     "experiment",
     "circuit_family",
     "qubits",
@@ -51,20 +53,9 @@ PRECISION_RAW_FIELDS = [
 
 
 def _environment() -> dict[str, Any]:
-    import socket
+    from aegisq.benchmark.runner import provenance_row
 
-    from aegisq import __version__
-    from aegisq.benchmark.runner import git_commit
-    from aegisq.runtime import hardware
-
-    commit, _ = git_commit()
-    return {
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "hostname": socket.gethostname(),
-        "cpu_model": hardware.cpu_info().extra.get("model", "unknown"),
-        "aegisq_version": __version__,
-        "git_commit": commit,
-    }
+    return provenance_row()
 
 
 def _fidelity(reference, candidate) -> tuple[float, float]:

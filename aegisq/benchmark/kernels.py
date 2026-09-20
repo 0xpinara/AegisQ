@@ -52,6 +52,7 @@ KERNEL_RAW_FIELDS = [
     "compiler",
     "aegisq_version",
     "git_commit",
+    "git_dirty",
     "experiment",
     "kernel",
     "qubits",
@@ -69,25 +70,14 @@ KERNEL_RAW_FIELDS = [
 
 
 def _environment() -> dict[str, Any]:
-    import platform
-    import socket
-
-    from aegisq import __version__, native_core
-    from aegisq.benchmark.runner import git_commit
-    from aegisq.runtime import hardware
+    from aegisq import native_core
+    from aegisq.benchmark.runner import provenance_row
 
     core = native_core()
-    cpu = hardware.cpu_info()
-    commit, _ = git_commit()
+    # A bandwidth number is a statement about a compiler as much as a CPU.
     return {
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "hostname": socket.gethostname(),
-        "cpu_model": cpu.extra.get("model", "unknown"),
-        "logical_cores": cpu.extra.get("logical_cores", 0),
-        "os": platform.platform(),
+        **provenance_row(),
         "compiler": core.compiler() if core is not None else "none",
-        "aegisq_version": __version__,
-        "git_commit": commit,
     }
 
 

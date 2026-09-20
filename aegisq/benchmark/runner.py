@@ -144,13 +144,34 @@ def git_commit() -> tuple[str, bool]:
     return commit.stdout.strip(), bool(source_changes)
 
 
-def environment_row() -> dict[str, Any]:
-    """Provenance columns shared by every row of a run."""
-    from aegisq import native_core
-    from aegisq.runtime import hardware
-    from aegisq.runtime.distributed import mpi_library_version
+#: Provenance columns that every raw file carries, whichever suite wrote it.
+#:
+#: Each specialised suite used to assemble these itself, and five of the six
+#: dropped `git_dirty` -- so most of the repository's raw data could not say
+#: whether the tree was modified when it was measured, and the report's
+#: "measured from a modified source tree" warning could only ever see the
+#: three files that happened to keep the column. The list is checked against
+#: every suite's field list by `test_raw_field_lists_carry_provenance`.
+PROVENANCE_FIELDS = [
+    "timestamp",
+    "hostname",
+    "cpu_model",
+    "os",
+    "aegisq_version",
+    "git_commit",
+    "git_dirty",
+]
 
-    core = native_core()
+
+def provenance_row() -> dict[str, Any]:
+    """Who, where, when and from which source tree -- for any suite.
+
+    Deliberately free of simulator state so the cryptographic and search
+    suites can use it unchanged; `environment_row` adds the toolchain
+    columns that only apply to a simulation run.
+    """
+    from aegisq.runtime import hardware
+
     commit, dirty = git_commit()
     cpu = hardware.cpu_info()
     return {
@@ -160,11 +181,22 @@ def environment_row() -> dict[str, Any]:
         "logical_cores": cpu.extra.get("logical_cores", 0),
         "os": platform.platform(),
         "python_version": platform.python_version(),
-        "compiler": core.compiler() if core is not None else "none",
-        "mpi_library": mpi_library_version(),
+        "aegisq_version": __version__,
         "git_commit": commit,
         "git_dirty": int(dirty),
-        "aegisq_version": __version__,
+    }
+
+
+def environment_row() -> dict[str, Any]:
+    """Provenance columns shared by every row of a simulation run."""
+    from aegisq import native_core
+    from aegisq.runtime.distributed import mpi_library_version
+
+    core = native_core()
+    return {
+        **provenance_row(),
+        "compiler": core.compiler() if core is not None else "none",
+        "mpi_library": mpi_library_version(),
     }
 
 

@@ -109,17 +109,17 @@ aegisq doctor   # report MPI / OpenMP / liboqs / Qiskit availability
 
 <!-- BENCHMARK-RESULTS:START -->
 
-All figures below were measured on **Apple M2 (8 logical cores)**, macOS-15.6.1-arm64-arm-64bit, Open MPI v5.0.10, AegisQ 0.1.0 at commit `5e2143839716`. They describe that host and are not a claim about cluster hardware.
+All figures below were measured on **Apple M2 (8 logical cores)**, macOS-15.6.1-arm64-arm-64bit, Open MPI v5.0.10, AegisQ 0.1.0 at commit `1a8b8b3ff33e`. They describe that host and are not a claim about cluster hardware.
 
 ### Communication-aware placement, 8 ranks, 20 qubits
 
 | circuit | measured MPI bytes, default | measured MPI bytes, optimized | reduction | wall time change |
 |---|---:|---:|---:|---:|
-| qft | 981,467,136 | 125,829,120 | **87.2%** | -30.0% |
-| grover | 1,879,048,192 | 520,093,696 | **72.3%** | -21.9% |
-| random | 411,041,792 | 251,658,240 | **38.8%** | -21.3% |
-| ising | 452,984,832 | 385,875,968 | **14.8%** | -14.6% |
-| ghz | 25,165,824 | 25,165,824 | **0.0%** | +11.0% |
+| qft | 981,467,136 | 125,829,120 | **87.2%** | -16.5% |
+| grover | 1,879,048,192 | 520,093,696 | **72.3%** | -23.7% |
+| random | 411,041,792 | 251,658,240 | **38.8%** | -22.0% |
+| ising | 452,984,832 | 385,875,968 | **14.8%** | -1.6% |
+| ghz | 25,165,824 | 25,165,824 | **0.0%** | +1.7% |
 
 Not every circuit benefits: ghz shows no reduction, because its expensive qubits already sit well under the default placement. That is a result, not a gap — a heuristic that claimed a win on every circuit would be the suspicious one.
 
@@ -149,14 +149,14 @@ Placement and fusion are not independent either: for `random` the pair removes 5
 
 | circuit | qubits | ranks | wall time (s) | speedup | efficiency |
 |---|---:|---:|---:|---:|---:|
-| ising | 22 | 1 | 1.900 | 1.00x | 100% |
-| ising | 22 | 2 | 1.035 | 1.84x | 92% |
-| ising | 22 | 4 | 0.746 | 2.55x | 64% |
-| ising | 22 | 8 | 0.784 | 2.42x | 30% |
-| qft | 22 | 1 | 5.391 | 1.00x | 100% |
-| qft | 22 | 2 | 3.030 | 1.78x | 89% |
-| qft | 22 | 4 | 2.360 | 2.28x | 57% |
-| qft | 22 | 8 | 2.536 | 2.13x | 27% |
+| ising | 22 | 1 | 1.887 | 1.00x | 100% |
+| ising | 22 | 2 | 1.014 | 1.86x | 93% |
+| ising | 22 | 4 | 0.634 | 2.98x | 74% |
+| ising | 22 | 8 | 0.667 | 2.83x | 35% |
+| qft | 22 | 1 | 5.002 | 1.00x | 100% |
+| qft | 22 | 2 | 2.713 | 1.84x | 92% |
+| qft | 22 | 4 | 1.870 | 2.67x | 67% |
+| qft | 22 | 8 | 1.918 | 2.61x | 33% |
 
 ![Strong scaling](benchmarks/plots/strong_scaling.png)
 
@@ -166,7 +166,36 @@ The placement search is exhaustive while the candidate count fits a budget and f
 
 Every cost rule except `swap` depends on one qubit's membership: a single-qubit gate costs if *its* qubit is global, a `cx` costs if *its target* is. `swap` costs if *either* operand is, and an OR is not a sum. So for a circuit without `swap` gates the objective is linear in the global set, and sorting the per-qubit costs gives the optimum outright — no search.
 
-For the rest, measured: across 99 sampled configurations, 93 of which genuinely needed the heuristic, it matched the exhaustive optimum **99 times out of 99** (worst gap 0.00%) while running up to 40x faster.
+For the rest, measured: across 99 sampled configurations, 93 of which genuinely needed the heuristic, it matched the exhaustive optimum **99 times out of 99** (worst gap 0.00%) while running up to 39x faster.
+
+### A fourth lever, and what it costs
+
+Single precision halves the shard and halves every transfer, exactly and without any analysis — unlike the other three levers, there is nothing to search for. The question is only what the accuracy costs.
+
+| circuit | gates | 1 − fidelity | largest amplitude error |
+|---|---:|---:|---:|
+| random | 43 | 1.3e-14 | 7.5e-08 |
+| random | 164 | 8.1e-14 | 6.7e-08 |
+| ising | 294 | 2.6e-13 | 7.1e-08 |
+| random | 639 | 3.5e-13 | 9.9e-09 |
+| random | 643 | 3.3e-13 | 9.2e-09 |
+| random | 654 | 3.1e-13 | 7.5e-09 |
+| random | 656 | 3.3e-13 | 7.2e-09 |
+| qft | 792 | 3.2e-13 | 1.2e-08 |
+| grover | 1,082 | 3.4e-13 | 1.5e-06 |
+| random | 2,510 | 1.4e-12 | 3.1e-08 |
+| random | 2,527 | 1.3e-12 | 3.0e-08 |
+| random | 2,533 | 1.3e-12 | 3.4e-08 |
+| random | 2,553 | 1.5e-12 | 3.4e-08 |
+| random | 2,577 | 1.4e-12 | 3.2e-08 |
+| random | 10,141 | 5.6e-12 | 1.2e-07 |
+| random | 10,151 | 5.6e-12 | 1.1e-07 |
+| random | 10,159 | 5.5e-12 | 1.1e-07 |
+| random | 10,198 | 5.7e-12 | 1.3e-07 |
+
+The error grows with circuit size — the largest circuit measured (10,198 gates) loses 5.7e-12 of fidelity — so "fp32 is fine" is a statement about a depth, not about a precision. In this range it is very fine: distinguishing the worst case here from the exact state would take on the order of 2e+11 shots, against the thousands a real job takes.
+
+![Single-precision error](benchmarks/plots/precision_error.png)
 
 ### Are the local kernels any good?
 
@@ -174,15 +203,15 @@ Wall time alone cannot say. State-vector simulation is bandwidth-bound, so each 
 
 | kernel | GB/s achieved | reference | fraction |
 |---|---:|---:|---:|
-| h | 76.6 | 72.1 | 106% |
-| rz | 72.9 | 72.1 | 101% |
-| cz | 49.1 | 72.1 | 68% |
-| swap | 41.2 | 72.1 | 57% |
-| cx | 39.1 | 72.1 | 54% |
+| rz | 81.8 | 73.0 | 112% |
+| h | 77.2 | 73.0 | 106% |
+| cz | 44.0 | 73.0 | 60% |
+| swap | 43.9 | 73.0 | 60% |
+| cx | 39.7 | 73.0 | 54% |
 
-The kernels that sweep the whole state — a general single-qubit gate and a diagonal one — run at 101–106% of that reference, which is to say they are memory-bound and there is little left to win. The ones that touch only part of the state plateau near 60%: they read and write a strided fraction of the array and leave about half the bandwidth unused. That is a concrete optimisation target rather than a mystery.
+The kernels that sweep the whole state — a general single-qubit gate and a diagonal one — run at 106–112% of that reference, which is to say they are memory-bound and there is little left to win. The ones that touch only part of the state plateau near 58%: they read and write a strided fraction of the array and leave about half the bandwidth unused. That is a concrete optimisation target rather than a mystery.
 
-The communication cost model assumes only the local/global distinction matters, never which *local* position a qubit occupies. Measured, that holds for most kernels (`cx` varies by 1% across target positions) and fails for `cz`, which varies by 56%. The model is therefore right about network traffic and incomplete about local cost — stated here rather than left for a reader to discover.
+The communication cost model assumes only the local/global distinction matters, never which *local* position a qubit occupies. Measured, that holds for most kernels (`rz` varies by 1% across target positions) and fails for `cz`, which varies by 50%. The model is therefore right about network traffic and incomplete about local cost — stated here rather than left for a reader to discover.
 
 ![Local kernel bandwidth](benchmarks/plots/kernel_bandwidth.png)
 
@@ -190,17 +219,17 @@ The communication cost model assumes only the local/global distinction matters, 
 
 | operation | median | size |
 |---|---:|---:|
-| ML-DSA-65 keygen | 55.0 us | 1952 B |
-| ML-DSA-65 sign | 95.7 us | 3309 B |
-| ML-DSA-65 verify | 49.5 us | 3309 B |
-| ML-KEM-768 decapsulate | 20.0 us | 32 B |
-| ML-KEM-768 encapsulate | 17.5 us | 1088 B |
-| ML-KEM-768 keygen | 17.1 us | 1184 B |
-| pack a job bundle (end to end) | 3.1 ms | — |
+| ML-DSA-65 keygen | 53.8 us | 1952 B |
+| ML-DSA-65 sign | 91.0 us | 3309 B |
+| ML-DSA-65 verify | 50.7 us | 3309 B |
+| ML-KEM-768 decapsulate | 21.2 us | 32 B |
+| ML-KEM-768 encapsulate | 18.6 us | 1088 B |
+| ML-KEM-768 keygen | 16.8 us | 1184 B |
+| pack a job bundle (end to end) | 3.2 ms | — |
 | verify, decrypt and open it | 5.7 ms | — |
 | envelope overhead, independent of circuit size | — | 7083 B |
 
-For scale: the heaviest job measured here (grover, 20 qubits, 8 ranks) runs for 579 ms and moves 1792 MiB over MPI. Securing it costs 8.8 ms end to end and 6.9 KiB on the wire — 1.53% of the runtime. Only 183 us of that is lattice arithmetic; the rest is canonical serialisation and base64, which is where an optimisation would actually pay off.
+For scale: the heaviest job measured here (grover, 20 qubits, 8 ranks) runs for 595 ms and moves 1792 MiB over MPI. Securing it costs 8.9 ms end to end and 6.9 KiB on the wire — 1.49% of the runtime. Only 182 us of that is lattice arithmetic; the rest is canonical serialisation and base64, which is where an optimisation would actually pay off.
 
 ### Why post-quantum cryptography, in one table
 
