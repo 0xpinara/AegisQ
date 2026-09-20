@@ -27,7 +27,6 @@ htmlcov/
 *.secret.key
 *_secret.json
 keys/
-!keys/.gitkeep
 **/private/
 
 # --- Generated job / result bundles ----------------------------------------

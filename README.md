@@ -60,7 +60,7 @@ This repository is built in phases; only what is checked below is implemented.
 - [x] Phase 11 — mapper evaluation on measured hardware
 - [x] Phase 12 — OpenQASM subset front end
 - [x] Phase 13 — memory estimator
-- [ ] Phase 14 — post-quantum identities (ML-KEM-768 / ML-DSA-65)
+- [x] Phase 14 — post-quantum identities (ML-KEM-768 / ML-DSA-65)
 - [ ] Phase 15 — secure job envelopes
 - [ ] Phase 16 — verified job execution and replay protection
 - [ ] Phase 17 — signed result provenance and Merkle verification

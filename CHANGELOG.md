@@ -85,3 +85,11 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
 - Slurm scripts for strong scaling, weak scaling, the placement experiment and
   secure job execution.
 - First measured results committed under `benchmarks/`.
+- Post-quantum identities: ML-KEM-768 and ML-DSA-65 key pairs from liboqs,
+  written with owner-only permissions, fingerprints recomputed on load so a
+  doctored identity file cannot advertise a fingerprint it does not have.
+- Canonical JSON serialisation for everything signed or hashed, including a
+  parser that rejects non-canonical bytes.
+- HKDF-SHA256 key derivation bound to protocol version and job id, and
+  AES-256-GCM authenticated encryption.
+- `aegisq keys init-client|init-cluster|fingerprint`.

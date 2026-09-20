@@ -347,6 +347,51 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_keys(args: argparse.Namespace) -> int:
+    """Generate and inspect post-quantum identities."""
+    from aegisq.secure.keys import (
+        IdentityError,
+        generate_client_identity,
+        generate_cluster_identity,
+        load_public_identity,
+    )
+
+    try:
+        if args.keys_command == "init-client":
+            identity = generate_client_identity(args.name, args.directory)
+            print(f"Client identity '{args.name}' created")
+            print(f"  signature algorithm: {identity.public.signature_algorithm}")
+            print(f"  fingerprint:         {identity.public.signature_fingerprint}")
+            print(f"  public key:          {identity.public_path}")
+            print(f"  secret key:          {identity.secret_path}  (mode 0600)")
+            print()
+            print("  Share the public file with the cluster; never share or commit the secret.")
+            return 0
+
+        if args.keys_command == "init-cluster":
+            identity = generate_cluster_identity(args.name, args.directory)
+            print(f"Cluster identity '{args.name}' created")
+            print(f"  KEM algorithm:       {identity.public.kem_algorithm}")
+            print(f"  KEM fingerprint:     {identity.public.kem_fingerprint}")
+            print(f"  signature algorithm: {identity.public.signature_algorithm}")
+            print(f"  signature fingerprint: {identity.public.signature_fingerprint}")
+            print(f"  public key:          {identity.public_path}")
+            print(f"  secret key:          {identity.secret_path}  (mode 0600)")
+            print()
+            print("  Publish the public file so clients can encapsulate to this cluster.")
+            return 0
+
+        public = load_public_identity(args.path)
+    except IdentityError as exc:
+        raise SystemExit(str(exc)) from None
+
+    print(f"{public.name} ({public.role}), created {public.created_at}")
+    print(f"  signature: {public.signature_algorithm}  {public.signature_fingerprint}")
+    if public.kem_public_key is not None:
+        print(f"  KEM:       {public.kem_algorithm}  {public.kem_fingerprint}")
+    return 0
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     """Report what the local machine can and cannot do."""
     from aegisq.runtime import hardware
@@ -511,6 +556,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report_cmd.add_argument("--raw", type=Path, help="raw CSV file or directory")
     report_cmd.set_defaults(func=_cmd_benchmark)
+
+    keys = subparsers.add_parser(
+        "keys",
+        help="generate and inspect post-quantum identities",
+        description=(
+            "ML-KEM-768 (FIPS 203) and ML-DSA-65 (FIPS 204) key material, from "
+            "liboqs. Secret files are written with owner-only permissions and "
+            "are excluded by .gitignore."
+        ),
+    )
+    keys_sub = keys.add_subparsers(dest="keys_command", required=True)
+
+    init_client = keys_sub.add_parser("init-client", help="create a job-signing identity")
+    init_client.add_argument("name")
+    init_client.add_argument("--directory", type=Path, default=Path("keys"))
+    init_client.set_defaults(func=_cmd_keys)
+
+    init_cluster = keys_sub.add_parser(
+        "init-cluster", help="create a cluster identity (KEM + signing)"
+    )
+    init_cluster.add_argument("name")
+    init_cluster.add_argument("--directory", type=Path, default=Path("keys"))
+    init_cluster.set_defaults(func=_cmd_keys)
+
+    fingerprint_cmd = keys_sub.add_parser(
+        "fingerprint", help="show the fingerprints of a public identity file"
+    )
+    fingerprint_cmd.add_argument("path", type=Path)
+    fingerprint_cmd.set_defaults(func=_cmd_keys)
 
     estimate = subparsers.add_parser(
         "estimate",
