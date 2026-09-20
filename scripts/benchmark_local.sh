@@ -49,6 +49,9 @@ echo "==> local kernel bandwidth"
 echo "==> placement search quality"
 "$PYTHON" -m aegisq.cli.main benchmark placement --qubits 18 --ranks 4,8,16 --samples 30
 
+echo "==> single-precision error"
+"$PYTHON" -m aegisq.cli.main benchmark precision --qubits 18 --depths 2,8,32,128,512
+
 echo "==> post-quantum primitives and envelope"
 "$PYTHON" -m aegisq.cli.main benchmark pqc --iterations 1000
 

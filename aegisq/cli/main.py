@@ -315,6 +315,22 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
         print("  aegisq benchmark report")
         return 0
 
+    if args.benchmark_command == "precision":
+        from aegisq.benchmark.precision import run_suite as run_precision
+
+        output = args.output or default_raw_path("precision")
+        print(f"Writing raw precision measurements to {output}")
+        run_precision(
+            output,
+            qubits=args.qubits,
+            depths=[int(d) for d in args.depths.split(",")],
+            samples=args.samples,
+        )
+        print()
+        print("Raw data written. Regenerate tables with:")
+        print("  aegisq benchmark report")
+        return 0
+
     if args.benchmark_command == "placement":
         from aegisq.benchmark.placement_quality import run_suite as run_placement
 
@@ -943,6 +959,16 @@ def build_parser() -> argparse.ArgumentParser:
     pqc_cmd.add_argument("--envelope-qubits", type=int, default=20)
     pqc_cmd.add_argument("--output", type=Path)
     pqc_cmd.set_defaults(func=_cmd_benchmark)
+
+    precision_cmd = benchmark_sub.add_parser(
+        "precision",
+        help="measure what single precision costs in accuracy and saves in traffic",
+    )
+    precision_cmd.add_argument("--qubits", type=int, default=18)
+    precision_cmd.add_argument("--depths", default="2,8,32,128,512")
+    precision_cmd.add_argument("--samples", type=int, default=5)
+    precision_cmd.add_argument("--output", type=Path)
+    precision_cmd.set_defaults(func=_cmd_benchmark)
 
     placement_cmd = benchmark_sub.add_parser(
         "placement",

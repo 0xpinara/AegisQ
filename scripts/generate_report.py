@@ -296,6 +296,43 @@ def build_block() -> str:
         )
         lines.append("")
 
+    precision = report_module.precision_table(report_module.load_precision())
+    if not precision.empty:
+        import numpy as np
+
+        worst = precision.sort_values("worst_infidelity", ascending=False).iloc[0]
+        biggest = precision.sort_values("gates", ascending=False).iloc[0]
+        lines.append("### A fourth lever, and what it costs")
+        lines.append("")
+        lines.append(
+            "Single precision halves the shard and halves every transfer, exactly and "
+            "without any analysis — unlike the other three levers, there is nothing to "
+            "search for. The question is only what the accuracy costs."
+        )
+        lines.append("")
+        lines.append("| circuit | gates | 1 − fidelity | largest amplitude error |")
+        lines.append("|---|---:|---:|---:|")
+        for row in precision.sort_values("gates").itertuples():
+            lines.append(
+                f"| {row.circuit_family} | {row.gates:,} | {row.worst_infidelity:.1e} | "
+                f"{row.worst_amplitude_error:.1e} |"
+            )
+        lines.append("")
+        shots_needed = 1.0 / max(worst.worst_infidelity, 1e-300)
+        lines.append(
+            f"The error grows with circuit size — the largest circuit measured "
+            f"({int(biggest.gates):,} gates) loses "
+            f'{biggest.worst_infidelity:.1e} of fidelity — so "fp32 is fine" is a '
+            "statement about a depth, not about a precision. In this range it is very "
+            f"fine: distinguishing the worst case here from the exact state would take "
+            f"on the order of {shots_needed:.0e} shots, against the thousands a real job "
+            "takes."
+        )
+        lines.append("")
+        lines.append("![Single-precision error](benchmarks/plots/precision_error.png)")
+        lines.append("")
+        _ = np
+
     kernels = report_module.kernel_table(report_module.load_kernels())
     if not kernels.empty:
         peak_threads = int(kernels["threads"].max())

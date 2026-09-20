@@ -43,7 +43,7 @@ CONFIG_KEYS = [
 #:
 #: Kept as a named constant rather than an inline condition because it has
 #: been forgotten twice when a new experiment was added.
-SPECIALISED_RAW_PREFIXES = ("pqc_", "search_", "kernels_", "placement_")
+SPECIALISED_RAW_PREFIXES = ("pqc_", "search_", "kernels_", "placement_", "precision_")
 
 
 def load_raw(source: Path | None = None) -> pd.DataFrame:
@@ -718,6 +718,67 @@ def placement_quality_table(data: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def load_precision(source: Path | None = None) -> pd.DataFrame:
+    """Read the single-versus-double precision measurements, if any exist."""
+    source = source or RAW_DIR
+    paths = sorted(source.glob("precision_*.csv")) if source.is_dir() else [source]
+    frames = [pd.read_csv(path) for path in paths if path.exists()]
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+def precision_table(data: pd.DataFrame) -> pd.DataFrame:
+    """Worst-case fp32 error grouped by circuit size."""
+    if data.empty:
+        return data
+    return (
+        data.groupby(["circuit_family", "depth"], as_index=False)
+        .agg(
+            samples=("infidelity", "count"),
+            qubits=("qubits", "max"),
+            gates=("gates", "max"),
+            worst_infidelity=("infidelity", "max"),
+            worst_amplitude_error=("max_amplitude_error", "max"),
+            worst_norm_error=("norm_error", "max"),
+            median_speedup=("speedup", "median"),
+        )
+        .sort_values(["circuit_family", "gates"])
+        .reset_index(drop=True)
+    )
+
+
+def plot_precision(table: pd.DataFrame, path: Path, host: str = "") -> Path | None:
+    """How fp32 error grows with circuit size."""
+    if table.empty:
+        return None
+    plt = _figure()
+    fig, ax = plt.subplots(figsize=(7, 4.4), facecolor=SURFACE)
+    ax.set_facecolor(SURFACE)
+
+    for index, (family, group) in enumerate(table.groupby("circuit_family")):
+        group = group.sort_values("gates")
+        style = {"linestyle": "none"} if len(group) == 1 else {}
+        ax.plot(
+            group["gates"],
+            group["worst_infidelity"],
+            marker="o",
+            markersize=6,
+            linewidth=2,
+            color=SERIES_COLORS[index % len(SERIES_COLORS)],
+            label=family,
+            **style,
+        )
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    _style_axes(ax, "Single-precision error against fp64", "gates in the circuit", "1 - fidelity")
+    ax.legend(fontsize=8, frameon=False, labelcolor=INK_MUTED)
+    fig.suptitle(f"What fp32 costs{f' — {host}' if host else ''}", fontsize=12, color=INK)
+    fig.tight_layout()
+    return _save(fig, path)
+
+
 def prediction_accuracy(data: pd.DataFrame) -> pd.DataFrame:
     """Does the cost model's prediction match what was measured?"""
     summary = summarise(data)
@@ -1089,6 +1150,14 @@ def write_reports(
         if figure:
             written["kernel_bandwidth_plot"] = figure
 
+    precision = precision_table(load_precision(raw))
+    if not precision.empty:
+        precision.to_csv(processed / "precision_error.csv", index=False)
+        written["precision_error"] = processed / "precision_error.csv"
+        figure = plot_precision(precision, plots / "precision_error.png", host)
+        if figure:
+            written["precision_error_plot"] = figure
+
     placement = placement_quality_table(load_placement_quality(raw))
     if not placement.empty:
         placement.to_csv(processed / "placement_quality.csv", index=False)
@@ -1168,6 +1237,19 @@ def markdown_summary(raw: Path | None = None) -> str:
                 f"| {row.circuit_family} | {row.thread_policy} | {row.ranks} | {row.qubits} | "
                 f"{row.amplitudes_per_rank:,} | {row.wall_best_s:.3f} | "
                 f"{row.efficiency * 100:.0f}% |"
+            )
+        lines.append("")
+
+    precision = precision_table(load_precision(raw))
+    if not precision.empty:
+        lines.append("## Single-precision error (measured)")
+        lines.append("")
+        lines.append("| circuit | qubits | gates | worst 1-fidelity | worst amplitude error |")
+        lines.append("|---|---:|---:|---:|---:|")
+        for row in precision.itertuples():
+            lines.append(
+                f"| {row.circuit_family} | {row.qubits} | {row.gates} | "
+                f"{row.worst_infidelity:.2e} | {row.worst_amplitude_error:.2e} |"
             )
         lines.append("")
 
