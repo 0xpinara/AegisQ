@@ -147,6 +147,17 @@ void bind_distributed_statevector(py::module_& m, const char* name) {
         .def("apply_circuit", &DSV::apply_circuit, py::arg("circuit"))
         .def("norm", &DSV::norm)
         .def("local_squared_norm", &DSV::local_squared_norm)
+        .def(
+            "measure_all",
+            [](const DSV& self, std::uint64_t shots, std::uint64_t seed) {
+                const aegisq::MeasurementResult result = self.measure_all(shots, seed);
+                py::dict counts;
+                for (const auto& [index, count] : result.counts) {
+                    counts[py::int_(index)] = py::int_(count);
+                }
+                return counts;
+            },
+            py::arg("shots"), py::arg("seed"))
         .def("gather",
              [](const DSV& self) {
                  const std::vector<std::complex<double>> full = self.gather();

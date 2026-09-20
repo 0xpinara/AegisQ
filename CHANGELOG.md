@@ -66,3 +66,10 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   runtime, not merely reported.
 - `aegisq optimize` CLI with a human-readable before/after comparison and a
   `--json` mode.
+- OpenQASM subset front end (`parse_qasm`, `to_qasm`) that rejects anything
+  outside the supported grammar with a line number, plus `examples/*.qasm`.
+- Distributed measurement: rank-offset probability scan with MPI_Exscan and an
+  allgathered count map, producing counts identical to a single-process run
+  for the same seed.
+- `aegisq run`, which partitions automatically under mpirun and can apply a
+  communication-aware placement with `--optimize`.

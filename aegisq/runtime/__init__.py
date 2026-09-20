@@ -2,6 +2,7 @@
 
 # Registering the native backend is a side effect of importing this module, so
 # `Simulator(backend="cpp")` works without the caller knowing where it lives.
+from aegisq.runtime import distributed as _distributed  # noqa: E402,F401  (side effect)
 from aegisq.runtime import native as _native  # noqa: E402,F401  (import for side effect)
 from aegisq.runtime.reference import ReferenceStateVector
 from aegisq.runtime.simulator import (

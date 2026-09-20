@@ -58,7 +58,7 @@ This repository is built in phases; only what is checked below is implemented.
 - [x] Phase 9 — gate-aware communication cost model
 - [x] Phase 10 — static communication-aware mapper
 - [ ] Phase 11 — mapper evaluation on measured hardware
-- [ ] Phase 12 — OpenQASM subset front end
+- [x] Phase 12 — OpenQASM subset front end
 - [ ] Phase 13 — memory estimator
 - [ ] Phase 14 — post-quantum identities (ML-KEM-768 / ML-DSA-65)
 - [ ] Phase 15 — secure job envelopes
@@ -94,6 +94,27 @@ aegisq doctor   # report MPI / OpenMP / liboqs / Qiskit availability
 | liboqs-python | ML-KEM-768 / ML-DSA-65 | for the secure job layer |
 | Qiskit | correctness oracle in tests | optional |
 | CUDA | experimental GPU work | optional, not required |
+
+## Running a circuit
+
+```bash
+# single process
+aegisq run examples/bell.qasm --shots 1000
+
+# distributed over four ranks
+mpirun -np 4 aegisq run examples/ghz8.qasm --shots 1000
+
+# with a communication-aware placement
+mpirun -np 8 aegisq run qft --qubits 24 --shots 1024 --optimize
+
+# what would a placement cost?
+aegisq optimize random --qubits 20 --ranks 8 --option seed=3
+```
+
+Circuit input is a **documented subset** of OpenQASM (single register, the
+twelve supported gates, terminal measurement); anything outside it is rejected
+with a line number rather than ignored. The grammar is in
+[docs/architecture.md](docs/architecture.md).
 
 ## Repository layout
 

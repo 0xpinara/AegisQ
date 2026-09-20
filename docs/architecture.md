@@ -85,3 +85,36 @@ The reference (NumPy) backend uses `Generator.multinomial` and therefore
 produces a *different* — but equally reproducible — stream for the same seed.
 Counts are compared across backends statistically; state vectors are compared
 exactly.
+
+## Circuit input: a documented OpenQASM subset
+
+`aegisq.circuit.qasm` parses the part of OpenQASM that maps directly onto the
+AegisQ instruction set. It is **not** a complete OpenQASM implementation.
+
+Accepted:
+
+| Construct | Forms |
+|---|---|
+| version header | `OPENQASM 2.0;`, `OPENQASM 3;` (optional) |
+| include | `include "qelib1.inc";` (accepted, ignored) |
+| quantum register | `qreg q[n];`, `qubit[n] q;` — exactly one per circuit |
+| classical register | `creg c[n];`, `bit[n] c;` (accepted, ignored) |
+| gates | `x y z h s t` · `rx(theta) ry(theta) rz(theta)` · `cx cz swap` |
+| parameters | numbers, `pi`, `pi/4`, `2*pi`, `3*pi/8`, `1e-3` |
+| measurement | `measure q[i] -> c[i];`, `c[i] = measure q[i];`, `measure q[i];` |
+| barrier | `barrier q;` (accepted, ignored) |
+| comments | `//` and `/* ... */` |
+
+Rejected, with a line number and a reason:
+
+- any gate outside the instruction set (including `ccx`/`toffoli`),
+- custom `gate` definitions, `if`, loops and any construct with a body,
+- `reset`, multiple quantum registers, register-wide gate application,
+- unparseable parameter expressions.
+
+Rejecting is the point. A silently ignored instruction would produce a wrong
+state and a benchmark that looks perfectly reasonable.
+
+`to_qasm(circuit)` emits the same subset, and a roundtrip test asserts that
+parsing the emitted text reproduces the original instruction list and the same
+simulated state.

@@ -422,6 +422,88 @@ void DistributedStateVectorT<Real>::apply_swap_with_global(int a, int b) {
 }
 
 template <typename Real>
+MeasurementResult DistributedStateVectorT<Real>::measure_all(std::uint64_t shots,
+                                                             std::uint64_t seed) const {
+    MeasurementResult result;
+    result.shots = shots;
+    result.seed = seed;
+    if (shots == 0) {
+        return result;
+    }
+
+    const double local_mass = local_squared_norm();
+    double preceding_mass = 0.0;
+    double total_mass = local_mass;
+
+#if AEGISQ_HAVE_MPI
+    if (layout_.world_size() > 1) {
+        // Exscan gives the probability mass held by all lower-numbered ranks,
+        // which is exactly this shard's offset into the global distribution.
+        MPI_Exscan(&local_mass, &preceding_mass, 1, MPI_DOUBLE, MPI_SUM,
+                   MpiContext::instance().comm());
+        if (layout_.rank() == 0) {
+            preceding_mass = 0.0;
+        }
+        MPI_Allreduce(&local_mass, &total_mass, 1, MPI_DOUBLE, MPI_SUM,
+                      MpiContext::instance().comm());
+    }
+#endif
+
+    // Every rank generates the same draws from the same seed and claims only
+    // those falling inside its own interval.
+    const std::vector<double> draws = sorted_uniform_draws(shots, seed, total_mass);
+    std::map<std::uint64_t, std::uint64_t> physical_counts;
+    accumulate_shots(local_.data(), local_.size(),
+                     layout_.physical_index_for_rank(layout_.rank(), 0), preceding_mass, draws,
+                     physical_counts);
+
+    std::vector<std::uint64_t> keys;
+    std::vector<std::uint64_t> values;
+    keys.reserve(physical_counts.size());
+    values.reserve(physical_counts.size());
+    for (const auto& [index, count] : physical_counts) {
+        keys.push_back(layout_.to_logical_index(index));
+        values.push_back(count);
+    }
+
+#if AEGISQ_HAVE_MPI
+    if (layout_.world_size() > 1) {
+        const int world = layout_.world_size();
+        int local_pairs = static_cast<int>(keys.size());
+        std::vector<int> pairs_per_rank(static_cast<std::size_t>(world), 0);
+        MPI_Allgather(&local_pairs, 1, MPI_INT, pairs_per_rank.data(), 1, MPI_INT,
+                      MpiContext::instance().comm());
+
+        std::vector<int> displacements(static_cast<std::size_t>(world), 0);
+        int total_pairs = 0;
+        for (int r = 0; r < world; ++r) {
+            displacements[static_cast<std::size_t>(r)] = total_pairs;
+            total_pairs += pairs_per_rank[static_cast<std::size_t>(r)];
+        }
+
+        std::vector<std::uint64_t> all_keys(static_cast<std::size_t>(total_pairs));
+        std::vector<std::uint64_t> all_values(static_cast<std::size_t>(total_pairs));
+        MPI_Allgatherv(keys.data(), local_pairs, MPI_UINT64_T, all_keys.data(),
+                       pairs_per_rank.data(), displacements.data(), MPI_UINT64_T,
+                       MpiContext::instance().comm());
+        MPI_Allgatherv(values.data(), local_pairs, MPI_UINT64_T, all_values.data(),
+                       pairs_per_rank.data(), displacements.data(), MPI_UINT64_T,
+                       MpiContext::instance().comm());
+
+        for (std::size_t i = 0; i < all_keys.size(); ++i) {
+            result.counts[all_keys[i]] += all_values[i];
+        }
+        return result;
+    }
+#endif
+
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+        result.counts[keys[i]] += values[i];
+    }
+    return result;
+}
+
+template <typename Real>
 CommunicationMetrics DistributedStateVectorT<Real>::reduced_metrics() const {
     CommunicationMetrics reduced = profiler_.metrics();
 #if AEGISQ_HAVE_MPI

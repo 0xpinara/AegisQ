@@ -107,6 +107,106 @@ def _cmd_optimize(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_run(args: argparse.Namespace) -> int:
+    """Execute a circuit, distributing it when launched under mpirun."""
+    import json
+
+    from aegisq.runtime import Simulator
+    from aegisq.runtime.distributed import is_distributed, preferred_backend, rank, world_size
+
+    circuit = _load_circuit(args.circuit, args.qubits, _parse_options(args.option))
+    backend = args.backend if args.backend != "auto" else preferred_backend()
+    is_lead = rank() == 0
+
+    options: dict[str, object] = {}
+    mapping_report = None
+    if args.optimize:
+        if not is_distributed():
+            if is_lead:
+                print("note: --optimize has no effect on a single rank", file=sys.stderr)
+        else:
+            from aegisq.compiler import optimize_placement
+
+            mapping_report = optimize_placement(circuit, world_size(), args.precision)
+            options["mapping"] = list(mapping_report.mapping)
+
+    simulator = Simulator(backend, precision=args.precision, **options)
+    result = simulator.run(
+        circuit,
+        shots=args.shots,
+        seed=args.seed,
+        save_statevector=args.statevector,
+    )
+
+    if not is_lead:
+        return 0
+
+    if args.json:
+        payload = {
+            "circuit": {
+                "name": circuit.name,
+                "num_qubits": circuit.num_qubits,
+                "gates": len(circuit),
+                "depth": circuit.depth(),
+            },
+            "backend": backend,
+            "precision": args.precision,
+            "shots": args.shots,
+            "seed": args.seed,
+            "counts": result.counts,
+            "metrics": {k: v for k, v in result.metrics.items() if k != "per_opcode"},
+        }
+        if mapping_report is not None:
+            payload["placement"] = mapping_report.as_dict()
+        print(json.dumps(payload, indent=2, sort_keys=True, default=str))
+        return 0
+
+    print(
+        f"Circuit: {circuit.name}  "
+        f"({circuit.num_qubits} qubits, {len(circuit)} gates, depth {circuit.depth()})"
+    )
+    print(f"Backend: {backend}  precision: {args.precision}  ranks: {world_size()}")
+    if mapping_report is not None:
+        print(
+            f"Placement: global qubits {list(mapping_report.global_qubits)} "
+            f"(predicted {mapping_report.reduction * 100:.1f}% less traffic)"
+        )
+    print()
+
+    if result.counts:
+        total = sum(result.counts.values())
+        print(f"Counts ({total} shots, top {args.top}):")
+        for bitstring, count in result.most_frequent(args.top):
+            bar = "#" * max(1, round(40 * count / total))
+            print(f"  {bitstring}  {count:>8}  {count / total * 100:6.2f}%  {bar}")
+        print()
+
+    if args.statevector and result.statevector is not None:
+        import numpy as np
+
+        state = np.asarray(result.statevector)
+        print("Non-zero amplitudes:")
+        for index in np.flatnonzero(np.abs(state) > 1e-9)[: args.top]:
+            print(f"  |{index:0{circuit.num_qubits}b}>  {state[index]:.6f}")
+        print()
+
+    metrics = result.metrics
+    print("Metrics:")
+    print(f"  wall time:            {metrics.get('wall_seconds', 0.0) * 1000:.2f} ms")
+    if "bytes_sent" in metrics:
+        print(
+            f"  MPI bytes sent:       {metrics['bytes_sent']} "
+            f"({metrics['bytes_sent'] / 2**20:.2f} MiB, summed over ranks)"
+        )
+        print(f"  pairwise exchanges:   {metrics['pairwise_exchanges']}")
+        print(
+            f"  communication time:   {metrics['communication_seconds'] * 1000:.2f} ms "
+            f"(slowest rank)"
+        )
+        print(f"  compute time:         {metrics['compute_seconds'] * 1000:.2f} ms (slowest rank)")
+    return 0
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     """Report what the local machine can and cannot do."""
     from aegisq.runtime import hardware
@@ -159,6 +259,43 @@ def build_parser() -> argparse.ArgumentParser:
     )
     doctor.add_argument("--json", action="store_true", help="emit a machine-readable snapshot")
     doctor.set_defaults(func=_cmd_doctor)
+
+    run = subparsers.add_parser(
+        "run",
+        help="execute a circuit (distributed when launched under mpirun)",
+        description=(
+            "Execute a circuit. Under `mpirun -np P` the state vector is "
+            "partitioned across the P ranks automatically."
+        ),
+    )
+    run.add_argument(
+        "circuit",
+        help="circuit file (.qasm, .json) or a benchmark family name",
+    )
+    run.add_argument("--qubits", type=int, help="width, when building a named family")
+    run.add_argument("--shots", type=int, default=1024, help="measurement shots (0 to skip)")
+    run.add_argument("--seed", type=int, default=42, help="sampling seed")
+    run.add_argument("--precision", choices=("fp64", "fp32"), default="fp64")
+    run.add_argument(
+        "--backend",
+        choices=("auto", "cpp", "mpi", "reference"),
+        default="auto",
+        help="auto selects mpi when the world has more than one rank",
+    )
+    run.add_argument(
+        "--optimize",
+        action="store_true",
+        help="apply a communication-aware qubit placement before running",
+    )
+    run.add_argument(
+        "--statevector",
+        action="store_true",
+        help="print non-zero amplitudes (gathers the full state; small circuits only)",
+    )
+    run.add_argument("--top", type=int, default=10, help="how many outcomes to print")
+    run.add_argument("--option", action="append", metavar="KEY=VALUE", help="extra family option")
+    run.add_argument("--json", action="store_true", help="emit machine-readable output")
+    run.set_defaults(func=_cmd_run)
 
     optimize = subparsers.add_parser(
         "optimize",

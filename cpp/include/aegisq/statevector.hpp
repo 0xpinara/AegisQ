@@ -145,6 +145,14 @@ class DistributedStateVectorT {
     /// on every rank, which defeats the point of distributing the state.
     std::vector<std::complex<double>> gather() const;
 
+    /// Sample `shots` terminal measurements of all qubits.
+    ///
+    /// Counts are keyed by *logical* basis index and are identical on every
+    /// rank. The draw sequence depends only on (shots, seed), so a run split
+    /// over any number of ranks yields the same counts for a given qubit
+    /// placement.
+    MeasurementResult measure_all(std::uint64_t shots, std::uint64_t seed) const;
+
     /// Measured communication and timing counters for this rank.
     const CommunicationMetrics& metrics() const { return profiler_.metrics(); }
     void reset_metrics() { profiler_.reset(); }

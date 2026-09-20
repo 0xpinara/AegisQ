@@ -118,6 +118,81 @@ def new_distributed_state(
     return cls(num_qubits, list(mapping))
 
 
+def _run_distributed(
+    circuit,
+    *,
+    shots: int,
+    seed: int | None,
+    precision: str,
+    save_statevector: bool,
+    measure,
+    options: dict[str, Any],
+):
+    """Simulator backend: execute a circuit across the MPI world."""
+    import time
+
+    from aegisq.runtime.native import counts_to_bitstrings, to_native_circuit
+
+    mapping = options.get("mapping")
+    state = new_distributed_state(circuit.num_qubits, precision=precision, mapping=mapping)
+
+    started = time.perf_counter()
+    state.apply_circuit(to_native_circuit(circuit))
+    wall = time.perf_counter() - started
+
+    counts: dict[str, int] = {}
+    if shots:
+        qubits = (
+            measure
+            if measure is not None
+            else (circuit.measured_qubits or range(circuit.num_qubits))
+        )
+        raw = state.measure_all(shots, 0 if seed is None else int(seed))
+        counts = counts_to_bitstrings(raw, list(qubits))
+
+    statevector = None
+    if save_statevector:
+        # Gathering materialises 2^n amplitudes on every rank, so it is
+        # allowed only for circuits small enough that this is harmless.
+        limit = int(options.get("max_gather_qubits", 24))
+        if circuit.num_qubits > limit:
+            raise ValueError(
+                f"refusing to gather a {circuit.num_qubits}-qubit state onto every rank; "
+                f"raise max_gather_qubits above {limit} if this is intentional"
+            )
+        statevector = state.gather()
+
+    metrics = dict(state.reduced_metrics())
+    metrics.update(
+        {
+            "wall_seconds_rank": wall,
+            "world_size": state.world_size,
+            "local_amplitudes": state.local_size,
+            "gates": len(circuit),
+            "depth": circuit.depth(),
+            "global_qubits": list(state.layout.global_qubits()),
+            "mapping": list(state.layout.logical_to_position),
+        }
+    )
+    return statevector, counts, metrics
+
+
+def register_mpi_backend() -> None:
+    """Register the `mpi` backend with the simulator front end."""
+    from aegisq.runtime.simulator import available_backends, register_backend
+
+    if "mpi" not in available_backends():
+        register_backend("mpi", _run_distributed)
+
+
+register_mpi_backend()
+
+
+def preferred_backend() -> str:
+    """`mpi` when this process is part of a multi-rank world, else `cpp`."""
+    return "mpi" if is_distributed() else "cpp"
+
+
 def describe() -> dict[str, Any]:
     """Short description of the distributed environment, for provenance records."""
     return {
