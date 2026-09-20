@@ -1,109 +1,109 @@
 ## Measurement host
 
 - host: `pias-MacBook-Pro.local`
-- CPU: Apple M2 (8.0 logical cores)
+- CPU: Apple M2 (8 logical cores)
 - OS: macOS-15.6.1-arm64-arm-64bit
 - compiler: AppleClang 17.0.0.17000603
-- MPI: nan
-- AegisQ 0.1.0 at commit `c980b47c70d0`
+- MPI: Open MPI v5.0.10, package: Open MPI brew@Sequoia-arm64.local Distribution, ident: 5.0.10, repo rev: v5.0.10, Feb 23, 2026
+- AegisQ 0.1.0 at commit `93b16fec05f0`
 
 ## Communication-aware placement (measured)
 
 | circuit | qubits | ranks | baseline MPI bytes | optimized MPI bytes | reduction | baseline wall (s) | optimized wall (s) | wall change |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| ghz | 20 | 2 | 8,388,608 | 8,388,608 | 0.0% | 0.009 | 0.008 | -14.6% |
-| ghz | 20 | 4 | 16,777,216 | 16,777,216 | 0.0% | 0.008 | 0.010 | +28.0% |
-| ghz | 20 | 8 | 25,165,824 | 25,165,824 | 0.0% | 0.015 | 0.014 | -6.6% |
-| grover | 20 | 2 | 536,870,912 | 150,994,944 | 71.9% | 0.468 | 0.440 | -6.0% |
-| grover | 20 | 4 | 1,207,959,552 | 301,989,888 | 75.0% | 0.483 | 0.429 | -11.3% |
-| grover | 20 | 8 | 1,879,048,192 | 520,093,696 | 72.3% | 0.547 | 0.479 | -12.5% |
-| ising | 20 | 2 | 150,994,944 | 83,886,080 | 44.4% | 0.127 | 0.130 | +2.4% |
-| ising | 20 | 4 | 301,989,888 | 234,881,024 | 22.2% | 0.132 | 0.132 | +0.0% |
-| ising | 20 | 8 | 452,984,832 | 385,875,968 | 14.8% | 0.173 | 0.163 | -5.6% |
-| qft | 20 | 2 | 343,932,928 | 25,165,824 | 92.7% | 0.349 | 0.327 | -6.5% |
-| qft | 20 | 4 | 671,088,640 | 67,108,864 | 90.0% | 0.345 | 0.303 | -12.1% |
-| qft | 20 | 8 | 981,467,136 | 125,829,120 | 87.2% | 0.383 | 0.260 | -32.1% |
-| random | 20 | 2 | 159,383,552 | 83,886,080 | 47.4% | 0.108 | 0.104 | -3.5% |
-| random | 20 | 4 | 251,658,240 | 167,772,160 | 33.3% | 0.111 | 0.101 | -8.7% |
-| random | 20 | 8 | 411,041,792 | 251,658,240 | 38.8% | 0.150 | 0.134 | -10.8% |
+| ghz | 20 | 2 | 8,388,608 | 8,388,608 | 0.0% | 0.007 | 0.009 | +14.2% |
+| ghz | 20 | 4 | 16,777,216 | 16,777,216 | 0.0% | 0.010 | 0.009 | -7.0% |
+| ghz | 20 | 8 | 25,165,824 | 25,165,824 | 0.0% | 0.010 | 0.016 | +58.7% |
+| grover | 20 | 2 | 536,870,912 | 150,994,944 | 71.9% | 0.465 | 0.452 | -2.8% |
+| grover | 20 | 4 | 1,207,959,552 | 301,989,888 | 75.0% | 0.494 | 0.429 | -13.0% |
+| grover | 20 | 8 | 1,879,048,192 | 520,093,696 | 72.3% | 0.566 | 0.444 | -21.6% |
+| ising | 20 | 2 | 150,994,944 | 83,886,080 | 44.4% | 0.129 | 0.122 | -5.7% |
+| ising | 20 | 4 | 301,989,888 | 234,881,024 | 22.2% | 0.138 | 0.126 | -9.0% |
+| ising | 20 | 8 | 452,984,832 | 385,875,968 | 14.8% | 0.164 | 0.160 | -2.6% |
+| qft | 20 | 2 | 343,932,928 | 25,165,824 | 92.7% | 0.349 | 0.316 | -9.3% |
+| qft | 20 | 4 | 671,088,640 | 67,108,864 | 90.0% | 0.348 | 0.308 | -11.6% |
+| qft | 20 | 8 | 981,467,136 | 125,829,120 | 87.2% | 0.358 | 0.283 | -20.9% |
+| random | 20 | 2 | 159,383,552 | 83,886,080 | 47.4% | 0.140 | 0.100 | -28.5% |
+| random | 20 | 4 | 251,658,240 | 167,772,160 | 33.3% | 0.113 | 0.100 | -11.5% |
+| random | 20 | 8 | 411,041,792 | 251,658,240 | 38.8% | 0.166 | 0.129 | -22.1% |
 
 ## Strong scaling (measured)
 
 | circuit | qubits | thread policy | ranks | threads/rank | wall (s) | speedup | efficiency |
 |---|---:|---|---:|---:|---:|---:|---:|
-| ising | 22 | one-thread-per-rank | 1 | 1 | 1.898 | 1.00x | 100% |
-| ising | 22 | one-thread-per-rank | 2 | 1 | 1.027 | 1.85x | 92% |
-| ising | 22 | one-thread-per-rank | 4 | 1 | 0.770 | 2.46x | 62% |
-| ising | 22 | one-thread-per-rank | 8 | 1 | 0.772 | 2.46x | 31% |
-| qft | 22 | one-thread-per-rank | 1 | 1 | 5.356 | 1.00x | 100% |
-| qft | 22 | one-thread-per-rank | 2 | 1 | 3.016 | 1.78x | 89% |
-| qft | 22 | one-thread-per-rank | 4 | 1 | 2.375 | 2.26x | 56% |
-| qft | 22 | one-thread-per-rank | 8 | 1 | 2.435 | 2.20x | 27% |
+| ising | 22 | one-thread-per-rank | 1 | 1 | 1.888 | 1.00x | 100% |
+| ising | 22 | one-thread-per-rank | 2 | 1 | 1.023 | 1.85x | 92% |
+| ising | 22 | one-thread-per-rank | 4 | 1 | 0.756 | 2.50x | 62% |
+| ising | 22 | one-thread-per-rank | 8 | 1 | 0.798 | 2.36x | 30% |
+| qft | 22 | one-thread-per-rank | 1 | 1 | 5.397 | 1.00x | 100% |
+| qft | 22 | one-thread-per-rank | 2 | 1 | 3.029 | 1.78x | 89% |
+| qft | 22 | one-thread-per-rank | 4 | 1 | 2.365 | 2.28x | 57% |
+| qft | 22 | one-thread-per-rank | 8 | 1 | 2.417 | 2.23x | 28% |
 
 ## Weak scaling (measured)
 
 | circuit | thread policy | ranks | qubits | amplitudes/rank | wall (s) | efficiency |
 |---|---|---:|---:|---:|---:|---:|
-| ising | one-thread-per-rank | 1 | 20 | 1,048,576 | 0.418 | 100% |
-| ising | one-thread-per-rank | 2 | 21 | 1,048,576 | 0.487 | 86% |
-| ising | one-thread-per-rank | 4 | 22 | 1,048,576 | 0.741 | 56% |
-| ising | one-thread-per-rank | 8 | 23 | 1,048,576 | 1.657 | 25% |
+| ising | one-thread-per-rank | 1 | 20 | 1,048,576 | 0.416 | 100% |
+| ising | one-thread-per-rank | 2 | 21 | 1,048,576 | 0.482 | 86% |
+| ising | one-thread-per-rank | 4 | 22 | 1,048,576 | 0.732 | 57% |
+| ising | one-thread-per-rank | 8 | 23 | 1,048,576 | 1.750 | 24% |
 
 ## Placement search quality (measured)
 
 | qubits | ranks | candidate sets | samples | needing the heuristic | optimum found | worst gap | median speedup |
 |---:|---:|---:|---:|---:|---:|---:|---:|
 | 18 | 4 | 153 | 33 | 31 | 33/33 | 0.00% | 3x |
-| 18 | 8 | 816 | 33 | 31 | 33/33 | 0.00% | 11x |
+| 18 | 8 | 816 | 33 | 31 | 33/33 | 0.00% | 12x |
 | 18 | 16 | 3,060 | 33 | 31 | 33/33 | 0.00% | 40x |
 
 ## Local kernel bandwidth (measured)
 
 | kernel | threads | GB/s | in-place reference | fraction |
 |---|---:|---:|---:|---:|
-| cx | 1 | 18.2 | 31.7 | 57% |
-| cx | 2 | 33.8 | 59.7 | 57% |
-| cx | 4 | 41.2 | 79.7 | 52% |
-| cx | 8 | 38.0 | 70.8 | 54% |
-| cz | 1 | 36.4 | 31.7 | 115% |
-| cz | 2 | 41.1 | 59.7 | 69% |
-| cz | 4 | 41.9 | 79.7 | 53% |
-| cz | 8 | 45.3 | 70.8 | 64% |
-| h | 1 | 19.9 | 31.7 | 63% |
-| h | 2 | 39.5 | 59.7 | 66% |
-| h | 4 | 71.8 | 79.7 | 90% |
-| h | 8 | 76.4 | 70.8 | 108% |
-| rz | 1 | 31.4 | 31.7 | 99% |
-| rz | 2 | 60.1 | 59.7 | 101% |
-| rz | 4 | 78.2 | 79.7 | 98% |
-| rz | 8 | 77.8 | 70.8 | 110% |
-| swap | 1 | 38.1 | 31.7 | 120% |
-| swap | 2 | 41.1 | 59.7 | 69% |
-| swap | 4 | 44.9 | 79.7 | 56% |
-| swap | 8 | 42.5 | 70.8 | 60% |
+| cx | 1 | 17.6 | 31.8 | 55% |
+| cx | 2 | 35.3 | 60.7 | 58% |
+| cx | 4 | 40.5 | 77.9 | 52% |
+| cx | 8 | 40.6 | 72.0 | 56% |
+| cz | 1 | 34.5 | 31.8 | 108% |
+| cz | 2 | 40.8 | 60.7 | 67% |
+| cz | 4 | 42.7 | 77.9 | 55% |
+| cz | 8 | 48.4 | 72.0 | 67% |
+| h | 1 | 20.2 | 31.8 | 63% |
+| h | 2 | 39.5 | 60.7 | 65% |
+| h | 4 | 71.5 | 77.9 | 92% |
+| h | 8 | 76.5 | 72.0 | 106% |
+| rz | 1 | 31.7 | 31.8 | 100% |
+| rz | 2 | 61.6 | 60.7 | 101% |
+| rz | 4 | 74.4 | 77.9 | 96% |
+| rz | 8 | 71.9 | 72.0 | 100% |
+| swap | 1 | 39.5 | 31.8 | 124% |
+| swap | 2 | 39.9 | 60.7 | 66% |
+| swap | 4 | 44.9 | 77.9 | 58% |
+| swap | 8 | 42.2 | 72.0 | 59% |
 
 ## Post-quantum primitives (measured)
 
 | algorithm | operation | median (us) | bytes |
 |---|---|---:|---:|
-| ML-DSA-44 | keygen | 32.9 | 1312 |
-| ML-DSA-44 | sign | 60.8 | 2420 |
+| ML-DSA-44 | keygen | 32.8 | 1312 |
+| ML-DSA-44 | sign | 62.2 | 2420 |
 | ML-DSA-44 | verify | 30.9 | 2420 |
-| ML-DSA-65 | keygen | 53.7 | 1952 |
-| ML-DSA-65 | sign | 94.4 | 3309 |
-| ML-DSA-65 | verify | 49.6 | 3309 |
-| ML-DSA-87 | keygen | 89.1 | 2592 |
-| ML-DSA-87 | sign | 139.7 | 4627 |
+| ML-DSA-65 | keygen | 53.8 | 1952 |
+| ML-DSA-65 | sign | 97.8 | 3309 |
+| ML-DSA-65 | verify | 49.8 | 3309 |
+| ML-DSA-87 | keygen | 89.3 | 2592 |
+| ML-DSA-87 | sign | 137.0 | 4627 |
 | ML-DSA-87 | verify | 83.3 | 4627 |
-| ML-KEM-1024 | decapsulate | 27.7 | 32 |
-| ML-KEM-1024 | encapsulate | 24.3 | 1568 |
-| ML-KEM-1024 | keygen | 23.1 | 1568 |
+| ML-KEM-1024 | decapsulate | 27.8 | 32 |
+| ML-KEM-1024 | encapsulate | 24.2 | 1568 |
+| ML-KEM-1024 | keygen | 23.2 | 1568 |
 | ML-KEM-512 | decapsulate | 14.6 | 32 |
-| ML-KEM-512 | encapsulate | 12.9 | 768 |
-| ML-KEM-512 | keygen | 12.4 | 800 |
+| ML-KEM-512 | encapsulate | 13.0 | 768 |
+| ML-KEM-512 | keygen | 12.2 | 800 |
 | ML-KEM-768 | decapsulate | 20.0 | 32 |
-| ML-KEM-768 | encapsulate | 17.7 | 1088 |
-| ML-KEM-768 | keygen | 17.0 | 1184 |
+| ML-KEM-768 | encapsulate | 17.5 | 1088 |
+| ML-KEM-768 | keygen | 16.9 | 1184 |
 
 ## Secure job envelope (measured)
 
@@ -111,10 +111,10 @@
 |---|---:|---:|
 | bundle_size | - | 78059 |
 | envelope_fixed_overhead | - | 7083 |
-| pack_job | 3131 | 78059 |
+| pack_job | 3119 | 78059 |
 | payload_base64 | - | 70976 |
 | payload_plaintext | - | 53232 |
-| verify_and_open | 6079 | 78059 |
+| verify_and_open | 5783 | 78059 |
 
 ## Optimisation levers (measured)
 

@@ -288,3 +288,53 @@ def test_every_specialised_loader_has_a_matching_prefix():
         "placement_": report.load_placement_quality,
     }
     assert set(loaders) == set(report.SPECIALISED_RAW_PREFIXES)
+
+
+def test_dirtiness_ignores_generated_output(tmp_path, monkeypatch):
+    """Writing a raw CSV must not mark the run unattributable.
+
+    A benchmark sweep writes into benchmarks/ as it goes, so a naive
+    `git status` check turns itself on partway through and marks every row
+    after the first as coming from a modified tree.
+    """
+    import subprocess
+
+    from aegisq.benchmark import runner
+
+    class FakeCompleted:
+        def __init__(self, stdout: str):
+            self.stdout = stdout
+            self.returncode = 0
+
+    def fake_run(command, **kwargs):
+        if "rev-parse" in command:
+            return FakeCompleted("abc123\n")
+        return FakeCompleted(
+            " M benchmarks/raw/mapping_20260101_host.csv\n"
+            "?? benchmarks/plots/new.png\n"
+            " M paper/main.pdf\n"
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    commit, dirty = runner.git_commit()
+    assert commit == "abc123"
+    assert dirty is False
+
+
+def test_dirtiness_still_reports_modified_source(monkeypatch):
+    import subprocess
+
+    from aegisq.benchmark import runner
+
+    class FakeCompleted:
+        def __init__(self, stdout: str):
+            self.stdout = stdout
+            self.returncode = 0
+
+    def fake_run(command, **kwargs):
+        if "rev-parse" in command:
+            return FakeCompleted("abc123\n")
+        return FakeCompleted(" M aegisq/runtime/simulator.py\n M benchmarks/raw/x.csv\n")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert runner.git_commit() == ("abc123", True)

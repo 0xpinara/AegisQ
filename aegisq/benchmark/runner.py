@@ -100,8 +100,21 @@ class BenchmarkConfig:
     options: dict[str, Any] = field(default_factory=dict)
 
 
+#: Paths whose contents are *produced by* measuring, and so cannot be part of
+#: deciding whether the code that produced a measurement was committed.
+#: Without this exclusion every run after the first reports a dirty tree,
+#: because writing the first raw CSV dirties it.
+_OUTPUT_PATHS = ("benchmarks/", "paper/main.pdf", "paper/tables/")
+
+
 def git_commit() -> tuple[str, bool]:
-    """Current commit and whether the working tree is dirty."""
+    """Current commit, and whether the *code* differs from it.
+
+    Dirtiness here means "the source that produced this measurement is not
+    what the commit contains". Generated output does not count: a benchmark
+    run necessarily writes files, and a flag that turned itself on partway
+    through a sweep would mark every measurement unattributable.
+    """
     root = Path(__file__).resolve().parents[2]
     try:
         commit = subprocess.run(
@@ -122,7 +135,13 @@ def git_commit() -> tuple[str, bool]:
         return "unknown", False
     if commit.returncode != 0:
         return "unknown", False
-    return commit.stdout.strip(), bool(status.stdout.strip())
+
+    source_changes = [
+        line
+        for line in status.stdout.splitlines()
+        if line.strip() and not any(part in line for part in _OUTPUT_PATHS)
+    ]
+    return commit.stdout.strip(), bool(source_changes)
 
 
 def environment_row() -> dict[str, Any]:
