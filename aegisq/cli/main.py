@@ -567,8 +567,41 @@ def _cmd_secure_run(args: argparse.Namespace) -> int:
         "metrics": {k: v for k, v in result.metrics.items() if k != "per_opcode"},
     }
 
+    # Sign the execution record with the cluster identity, so the result can
+    # be attributed and tamper-checked later.
+    from aegisq.provenance import (
+        artifacts_from_result,
+        build_result_manifest,
+        sign_result,
+        write_result,
+    )
+
+    metrics = {k: v for k, v in result.metrics.items() if k != "per_opcode"}
+    result_manifest = build_result_manifest(
+        job_id=manifest.job_id,
+        input_circuit_sha256=manifest.circuit_sha256,
+        artifacts=artifacts_from_result(result.counts, metrics),
+        execution=payload["execution"],
+        performance={
+            "wall_seconds": metrics.get("wall_seconds", 0.0),
+            "compute_seconds": metrics.get("compute_seconds", 0.0),
+        },
+        communication={
+            "communication_seconds": metrics.get("communication_seconds", 0.0),
+            "bytes_sent": metrics.get("bytes_sent", 0),
+            "bytes_received": metrics.get("bytes_received", 0),
+            "pairwise_exchanges": metrics.get("pairwise_exchanges", 0),
+        },
+        client_fingerprint=opened.client.signature_fingerprint,
+    )
+    signed = sign_result(result_manifest, cluster)
+    payload["result_manifest"] = {
+        "output_merkle_root": result_manifest.output_merkle_root,
+        "signed_by": cluster.public.signature_fingerprint,
+    }
+
     if args.output:
-        args.output.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        write_result(args.output, signed)
 
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -594,9 +627,56 @@ def _cmd_secure_run(args: argparse.Namespace) -> int:
         for bitstring, count in result.most_frequent(args.top):
             print(f"  {bitstring}  {count:>8}  {count / total * 100:6.2f}%")
         print()
+    print(f"  output merkle root: {result_manifest.output_merkle_root}")
+    print(f"  signed by cluster:  {cluster.public.signature_fingerprint}")
     if args.output:
-        print(f"Result written to {args.output}")
+        print(f"  signed result:      {args.output}")
+    else:
+        print("  (pass --output to keep the signed result bundle)")
     return 0
+
+
+def _cmd_verify_result(args: argparse.Namespace) -> int:
+    """Check a signed result bundle."""
+    import json
+
+    from aegisq.provenance import ProvenanceError, read_result, verify_result
+    from aegisq.secure.keys import IdentityError, load_public_identity
+
+    try:
+        cluster_public = load_public_identity(args.cluster)
+        raw = read_result(args.result)
+    except (IdentityError, ProvenanceError) as exc:
+        raise SystemExit(str(exc)) from None
+
+    report = verify_result(
+        raw,
+        cluster_public,
+        artifact_directory=args.artifacts,
+        expected_job_id=args.job_id,
+        expected_circuit_sha256=args.circuit_sha256,
+    )
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "ok": report.ok,
+                    "job_id": report.job_id,
+                    "cluster_name": report.cluster_name,
+                    "cluster_fingerprint": report.cluster_fingerprint,
+                    "checks": [
+                        {"name": name, "ok": ok, "detail": detail}
+                        for name, ok, detail in report.checks
+                    ],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(report.summary())
+    return 0 if report.ok else 1
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
@@ -850,10 +930,32 @@ def build_parser() -> argparse.ArgumentParser:
     secure_run.add_argument(
         "--replay-db", type=Path, default=Path("replay_db.json"), help="replay state file"
     )
-    secure_run.add_argument("--output", type=Path, help="write the result as JSON")
+    secure_run.add_argument("--output", type=Path, help="write the signed .aqresult bundle here")
     secure_run.add_argument("--top", type=int, default=10)
     secure_run.add_argument("--json", action="store_true")
     secure_run.set_defaults(func=_cmd_secure_run)
+
+    verify_result_cmd = subparsers.add_parser(
+        "verify-result",
+        help="check a signed result bundle",
+        description=(
+            "Verifies the cluster signature, the Merkle root over the artefact "
+            "list and each artefact's hashes. A valid signature authenticates "
+            "the origin of a record and detects tampering; it is not evidence "
+            "that the computation was performed correctly."
+        ),
+    )
+    verify_result_cmd.add_argument("result", type=Path)
+    verify_result_cmd.add_argument(
+        "--cluster", type=Path, required=True, help="cluster public identity file"
+    )
+    verify_result_cmd.add_argument(
+        "--artifacts", type=Path, help="directory holding referenced (non-inline) artefacts"
+    )
+    verify_result_cmd.add_argument("--job-id", help="expected job id, to check linkage")
+    verify_result_cmd.add_argument("--circuit-sha256", help="expected input circuit hash")
+    verify_result_cmd.add_argument("--json", action="store_true")
+    verify_result_cmd.set_defaults(func=_cmd_verify_result)
 
     estimate = subparsers.add_parser(
         "estimate",

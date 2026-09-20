@@ -106,3 +106,9 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   replay state, decryption and circuit hash — in that order — then execution.
   Under mpirun every rank refuses a replayed job while only rank 0 records it,
   so the ranks cannot disagree and deadlock.
+- Signed result provenance: RFC 6962 Merkle trees (domain-separated leaves, no
+  duplicated odd leaf), artefact descriptors with inline small outputs and
+  hashed external ones, an environment snapshot including whether the tree was
+  dirty, and an ML-DSA-signed `.aqresult` bundle.
+- `aegisq verify-result`, which reports each check individually and states
+  plainly that a valid signature is not evidence of correct computation.

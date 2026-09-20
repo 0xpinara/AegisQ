@@ -153,7 +153,7 @@ def deployment(tmp_path):
         "trusted": trusted,
         "bundle": bundle,
         "replay": tmp_path / "replay.json",
-        "result": tmp_path / "result.json",
+        "result": tmp_path / "result.aqresult",
     }
 
 
@@ -179,10 +179,22 @@ def test_secure_run_executes_a_valid_job(deployment, capsys):
     assert "accepted" in out
     assert "pinar" in out
 
-    payload = json.loads(deployment["result"].read_text())
-    assert payload["circuit"]["num_qubits"] == 6
-    assert sum(payload["counts"].values()) == 128
-    assert set(payload["counts"]) == {"000000", "111111"}
+    # The written file is a signed result bundle, so it is checked the way a
+    # recipient would check it rather than by reading raw JSON fields.
+    from aegisq.provenance import read_result, verify_result
+    from aegisq.secure.canonical import parse_canonical
+    from aegisq.secure.keys import load_public_identity
+
+    cluster_public = load_public_identity(deployment["cluster"].with_name("courant.public.json"))
+    report = verify_result(read_result(deployment["result"]), cluster_public)
+    assert report.ok, report.summary()
+    assert report.manifest.execution["world_size"] == 1
+
+    counts_artifact = next(a for a in report.manifest.artifacts if a.name == "counts.json")
+    counts = json.loads(counts_artifact.inline.decode())
+    assert sum(counts.values()) == 128
+    assert set(counts) == {"000000", "111111"}
+    assert parse_canonical(counts_artifact.inline) == counts
 
 
 def test_secure_run_refuses_the_same_bundle_twice(deployment):

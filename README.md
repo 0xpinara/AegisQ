@@ -63,7 +63,7 @@ This repository is built in phases; only what is checked below is implemented.
 - [x] Phase 14 — post-quantum identities (ML-KEM-768 / ML-DSA-65)
 - [x] Phase 15 — secure job envelopes
 - [x] Phase 16 — verified job execution and replay protection
-- [ ] Phase 17 — signed result provenance and Merkle verification
+- [x] Phase 17 — signed result provenance and Merkle verification
 - [ ] Phase 18 — security model documentation
 
 Benchmark numbers in this README are generated from raw measurements under
@@ -156,6 +156,25 @@ aegisq optimize random --qubits 20 --ranks 8 --option seed=3
 
 # will it fit?
 aegisq estimate --qubits 30 --ranks 4 --precision fp64
+```
+
+### Secure job submission
+
+```bash
+# once per identity
+aegisq keys init-client pinar --directory keys
+aegisq keys init-cluster courant --directory keys
+
+# client side: encrypt to the cluster, sign with your key
+aegisq secure-pack qft --qubits 24 --identity keys/pinar \
+    --cluster keys/courant.public.json --ranks 8 --shots 1024 --output qft24.aqjob
+
+# cluster side: verify, decrypt, run, sign the result
+mpirun -np 8 aegisq secure-run qft24.aqjob --cluster keys/courant \
+    --trusted keys/trusted --output qft24.aqresult
+
+# anyone: check the signed execution record
+aegisq verify-result qft24.aqresult --cluster keys/courant.public.json
 ```
 
 Circuit input is a **documented subset** of OpenQASM (single register, the
