@@ -586,6 +586,97 @@ def plot_levers(table: pd.DataFrame, path: Path, host: str = "") -> Path | None:
     return _save(fig, path)
 
 
+def load_kernels(source: Path | None = None) -> pd.DataFrame:
+    """Read the local-kernel bandwidth measurements, if any exist."""
+    source = source or RAW_DIR
+    paths = sorted(source.glob("kernels_*.csv")) if source.is_dir() else [source]
+    frames = [pd.read_csv(path) for path in paths if path.exists()]
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+def kernel_table(data: pd.DataFrame) -> pd.DataFrame:
+    """Best achieved bandwidth per kernel and thread count."""
+    if data.empty:
+        return data
+    return (
+        data.groupby(["kernel", "threads", "qubits"], as_index=False)
+        .agg(
+            gb_per_second=("gb_per_second", "max"),
+            slowest_gb_per_second=("gb_per_second", "min"),
+            inplace_gb_per_second=("inplace_gb_per_second", "max"),
+            fraction_of_inplace=("fraction_of_inplace", "max"),
+            seconds_per_gate=("seconds_per_gate", "min"),
+        )
+        .sort_values(["kernel", "threads"])
+        .reset_index(drop=True)
+    )
+
+
+def kernel_position_table(data: pd.DataFrame) -> pd.DataFrame:
+    """How much the target qubit's position changes a kernel's cost.
+
+    The communication cost model assumes only the local/global distinction
+    matters, never which local position a qubit occupies. This table is the
+    evidence for or against that assumption.
+    """
+    if data.empty:
+        return data
+    grouped = data.groupby(["kernel", "threads"], as_index=False).agg(
+        fastest=("gb_per_second", "max"),
+        slowest=("gb_per_second", "min"),
+    )
+    grouped["spread"] = (grouped["fastest"] - grouped["slowest"]) / grouped["fastest"]
+    return grouped.sort_values(["kernel", "threads"]).reset_index(drop=True)
+
+
+def plot_kernels(table: pd.DataFrame, path: Path, host: str = "") -> Path | None:
+    """Achieved bandwidth against thread count, with the machine's reference."""
+    if table.empty:
+        return None
+    plt = _figure()
+    fig, ax = plt.subplots(figsize=(7.5, 4.6), facecolor=SURFACE)
+    ax.set_facecolor(SURFACE)
+
+    for index, (kernel, group) in enumerate(table.groupby("kernel")):
+        group = group.sort_values("threads")
+        ax.plot(
+            group["threads"],
+            group["gb_per_second"],
+            marker="o",
+            markersize=6,
+            linewidth=2,
+            color=SERIES_COLORS[index % len(SERIES_COLORS)],
+            label=kernel,
+            zorder=3,
+        )
+
+    reference = table.groupby("threads", as_index=False)["inplace_gb_per_second"].max()
+    ax.plot(
+        reference["threads"],
+        reference["inplace_gb_per_second"],
+        linestyle=(0, (4, 3)),
+        linewidth=2,
+        color=GRID,
+        label="in-place reference",
+        zorder=2,
+    )
+
+    ax.set_xscale("log", base=2)
+    ax.set_xticks(sorted(table["threads"].unique()))
+    ax.set_xticklabels([str(t) for t in sorted(table["threads"].unique())])
+    _style_axes(ax, "Local kernel bandwidth", "threads", "GB/s achieved")
+    ax.legend(fontsize=8, frameon=False, labelcolor=INK_MUTED, ncol=2)
+    fig.suptitle(
+        f"How close the kernels get to the machine{f' — {host}' if host else ''}",
+        fontsize=12,
+        color=INK,
+    )
+    fig.tight_layout()
+    return _save(fig, path)
+
+
 def prediction_accuracy(data: pd.DataFrame) -> pd.DataFrame:
     """Does the cost model's prediction match what was measured?"""
     summary = summarise(data)
@@ -946,6 +1037,17 @@ def write_reports(
             envelope.to_csv(processed / "pqc_envelope.csv", index=False)
             written["pqc_envelope"] = processed / "pqc_envelope.csv"
 
+    kernels = kernel_table(load_kernels(raw))
+    if not kernels.empty:
+        kernels.to_csv(processed / "kernel_bandwidth.csv", index=False)
+        written["kernel_bandwidth"] = processed / "kernel_bandwidth.csv"
+        positions = kernel_position_table(load_kernels(raw))
+        positions.to_csv(processed / "kernel_position_sensitivity.csv", index=False)
+        written["kernel_position_sensitivity"] = processed / "kernel_position_sensitivity.csv"
+        figure = plot_kernels(kernels, plots / "kernel_bandwidth.png", host)
+        if figure:
+            written["kernel_bandwidth_plot"] = figure
+
     search = search_table(load_search(raw))
     if not search.empty:
         search.to_csv(processed / "grover_scaling.csv", index=False)
@@ -1020,6 +1122,19 @@ def markdown_summary(raw: Path | None = None) -> str:
                 f"| {row.circuit_family} | {row.thread_policy} | {row.ranks} | {row.qubits} | "
                 f"{row.amplitudes_per_rank:,} | {row.wall_best_s:.3f} | "
                 f"{row.efficiency * 100:.0f}% |"
+            )
+        lines.append("")
+
+    kernels = kernel_table(load_kernels(raw))
+    if not kernels.empty:
+        lines.append("## Local kernel bandwidth (measured)")
+        lines.append("")
+        lines.append("| kernel | threads | GB/s | in-place reference | fraction |")
+        lines.append("|---|---:|---:|---:|---:|")
+        for row in kernels.itertuples():
+            lines.append(
+                f"| {row.kernel} | {row.threads} | {row.gb_per_second:.1f} | "
+                f"{row.inplace_gb_per_second:.1f} | {row.fraction_of_inplace * 100:.0f}% |"
             )
         lines.append("")
 

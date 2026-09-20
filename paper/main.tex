@@ -387,6 +387,31 @@ fixed-total-cores policy the same QFT reaches only $0.87\times$ --- that is, on
 constant hardware, partitioning costs more than it saves, which is the honest
 framing of what MPI buys on a single node.
 
+\subsection{Are the local kernels efficient?}
+
+Wall time says whether a run was fast, not whether the implementation was
+good. State-vector simulation is bandwidth-bound, so each kernel is compared
+against what the same machine achieves on an in-place scale of an array of the
+same type, compiled with the same flags and threaded the same way. The
+in-place shape is the comparable one: a gate reads and writes a single array,
+which is not the traffic shape of a two-array copy.
+
+At 8 threads and 24 qubits the kernels that sweep the whole state --- a
+general single-qubit gate and a diagonal one --- reach $98\%$ of that
+reference. They are memory-bound, and there is little left to win. The kernels
+that touch only part of the state (\texttt{cx}, \texttt{cz}, \texttt{swap})
+plateau between $52\%$ and $59\%$: they read and write a strided fraction of
+the array and leave roughly half the available bandwidth unused. That is a
+concrete optimisation target rather than an unexplained gap.
+
+The same sweep tests an assumption the cost model makes. The model treats the
+local/global distinction as the only thing that matters and ignores which
+local position a qubit occupies. Measured across target positions, that holds
+for the full-sweep kernels and for \texttt{cx} (spread under $6\%$), and
+fails for \texttt{cz}, whose achieved bandwidth varies by $57\%$ with the
+target position. The model is therefore accurate about network traffic and
+incomplete about local cost.
+
 \subsection{RQ2: cost of the post-quantum layer}
 
 \input{tables/pqc.tex}

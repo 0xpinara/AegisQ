@@ -7,6 +7,13 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Local kernel bandwidth measurement** (`aegisq benchmark kernels`): each
+  kernel is timed and expressed as achieved GB/s against a STREAM-style
+  reference measured the same way, including an in-place shape that matches a
+  gate's traffic. Full-sweep kernels reach 98% of it; partial-sweep kernels
+  plateau near 52–59%. The sweep over target positions also tests the cost
+  model's assumption that local position does not matter — true for most
+  kernels, false for `cz` at a 57% spread.
 - **Windowed placement** (`aegisq.compiler.dynamic_mapper`): the qubit
   assignment may change part-way through a circuit when the phase structure
   pays for the switch. Planned by a dynamic program over windows and executed

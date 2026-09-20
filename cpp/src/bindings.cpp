@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "aegisq/bandwidth.hpp"
 #include "aegisq/circuit.hpp"
 #include "aegisq/communication_profiler.hpp"
 #include "aegisq/distributed_layout.hpp"
@@ -310,6 +311,42 @@ PYBIND11_MODULE(_aegisq_core, m) {
           "Set the per-call element limit; lowering it exercises the chunked path.");
     m.def("mpi_finalize", &aegisq::MpiContext::finalize,
           "Shut MPI down; idempotent and also registered with atexit.");
+
+    m.def(
+        "stream_triad",
+        [](std::size_t elements, int repeats) {
+            const aegisq::BandwidthSample sample = aegisq::stream_triad(elements, repeats);
+            py::dict out;
+            out["seconds"] = sample.seconds;
+            out["bytes"] = sample.bytes;
+            out["gb_per_second"] = sample.gigabytes_per_second();
+            return out;
+        },
+        py::arg("elements"), py::arg("repeats") = 5,
+        "STREAM triad over complex<double>, threaded like the kernels.");
+    m.def(
+        "stream_copy",
+        [](std::size_t elements, int repeats) {
+            const aegisq::BandwidthSample sample = aegisq::stream_copy(elements, repeats);
+            py::dict out;
+            out["seconds"] = sample.seconds;
+            out["bytes"] = sample.bytes;
+            out["gb_per_second"] = sample.gigabytes_per_second();
+            return out;
+        },
+        py::arg("elements"), py::arg("repeats") = 5, "STREAM copy over complex<double>.");
+    m.def(
+        "stream_scale_in_place",
+        [](std::size_t elements, int repeats) {
+            const aegisq::BandwidthSample sample = aegisq::stream_scale_in_place(elements, repeats);
+            py::dict out;
+            out["seconds"] = sample.seconds;
+            out["bytes"] = sample.bytes;
+            out["gb_per_second"] = sample.gigabytes_per_second();
+            return out;
+        },
+        py::arg("elements"), py::arg("repeats") = 5,
+        "In-place scale: the reference whose traffic shape matches a gate kernel.");
 
     m.def("is_power_of_two", &aegisq::is_power_of_two, py::arg("value"));
     m.def("log2_exact", &aegisq::log2_exact, py::arg("value"));

@@ -4,8 +4,8 @@
 - CPU: Apple M2 (8 logical cores)
 - OS: macOS-15.6.1-arm64-arm-64bit
 - compiler: AppleClang 17.0.0.17000603
-- MPI: Open MPI v5.0.10, package: Open MPI brew@Sequoia-arm64.local Distribution, ident: 5.0.10, repo rev: v5.0.10, Feb 23, 2026
-- AegisQ 0.1.0 at commit `b67b6064b543`
+- MPI: nan
+- AegisQ 0.1.0 at commit `dabb38de9c99`
 
 ## Communication-aware placement (measured)
 
@@ -52,6 +52,31 @@
 | ising | one-thread-per-rank | 2 | 21 | 1,048,576 | 0.483 | 86% |
 | ising | one-thread-per-rank | 4 | 22 | 1,048,576 | 0.715 | 58% |
 | ising | one-thread-per-rank | 8 | 23 | 1,048,576 | 1.647 | 25% |
+
+## Local kernel bandwidth (measured)
+
+| kernel | threads | GB/s | in-place reference | fraction |
+|---|---:|---:|---:|---:|
+| cx | 1 | 16.6 | 29.9 | 55% |
+| cx | 2 | 32.3 | 56.7 | 57% |
+| cx | 4 | 38.0 | 72.5 | 52% |
+| cx | 8 | 36.2 | 69.8 | 52% |
+| cz | 1 | 33.7 | 29.9 | 113% |
+| cz | 2 | 40.5 | 56.7 | 71% |
+| cz | 4 | 40.5 | 72.5 | 56% |
+| cz | 8 | 40.9 | 69.8 | 59% |
+| h | 1 | 19.3 | 29.9 | 64% |
+| h | 2 | 35.9 | 56.7 | 63% |
+| h | 4 | 69.7 | 72.5 | 96% |
+| h | 8 | 68.4 | 69.8 | 98% |
+| rz | 1 | 29.9 | 29.9 | 100% |
+| rz | 2 | 59.2 | 56.7 | 105% |
+| rz | 4 | 76.6 | 72.5 | 106% |
+| rz | 8 | 68.8 | 69.8 | 98% |
+| swap | 1 | 38.1 | 29.9 | 127% |
+| swap | 2 | 39.7 | 56.7 | 70% |
+| swap | 4 | 37.0 | 72.5 | 51% |
+| swap | 8 | 37.2 | 69.8 | 53% |
 
 ## Post-quantum primitives (measured)
 

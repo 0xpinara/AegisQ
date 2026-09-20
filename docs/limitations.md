@@ -35,6 +35,15 @@ reader does not have to discover it.
   effects or MPI implementation differences. A predicted byte reduction is not
   a promise of a proportional wall-time reduction, and the measurements show
   cases where traffic falls and wall time barely moves.
+- **The cost model has no local term.** It treats every local position as
+  equivalent. Measured, that is accurate for the kernels that sweep the whole
+  state but wrong for `cz`, whose achieved bandwidth varies by 57% with the
+  target qubit's position. A placement chosen purely to minimise network bytes
+  can therefore leave local performance on the table.
+- **Partial-sweep kernels reach about half the machine's bandwidth.** `cx`,
+  `cz` and `swap` plateau near 52–59% of an in-place reference while `h` and
+  `rz` reach 98%. This is measured, not modelled, and is the clearest local
+  optimisation target in the codebase.
 - **Static placement only.** The mapping is chosen once for the whole circuit.
   Re-mapping between circuit segments could do better for circuits whose
   structure changes — that is future work, not something implemented and

@@ -315,6 +315,22 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
         print("  aegisq benchmark report")
         return 0
 
+    if args.benchmark_command == "kernels":
+        from aegisq.benchmark.kernels import run_suite as run_kernels
+
+        output = args.output or default_raw_path("kernels")
+        print(f"Writing raw kernel measurements to {output}")
+        run_kernels(
+            output,
+            qubits=args.qubits,
+            thread_counts=[int(t) for t in args.threads.split(",")],
+            repeats=args.repeats,
+        )
+        print()
+        print("Raw data written. Regenerate tables and plots with:")
+        print("  aegisq benchmark report")
+        return 0
+
     if args.benchmark_command == "search":
         from aegisq.benchmark.search import run_suite as run_search
 
@@ -911,6 +927,16 @@ def build_parser() -> argparse.ArgumentParser:
     pqc_cmd.add_argument("--envelope-qubits", type=int, default=20)
     pqc_cmd.add_argument("--output", type=Path)
     pqc_cmd.set_defaults(func=_cmd_benchmark)
+
+    kernels_cmd = benchmark_sub.add_parser(
+        "kernels",
+        help="measure local kernel bandwidth against the machine's reference",
+    )
+    kernels_cmd.add_argument("--qubits", type=int, default=24)
+    kernels_cmd.add_argument("--threads", default="1,2,4,8")
+    kernels_cmd.add_argument("--repeats", type=int, default=7)
+    kernels_cmd.add_argument("--output", type=Path)
+    kernels_cmd.set_defaults(func=_cmd_benchmark)
 
     search_cmd = benchmark_sub.add_parser(
         "search",

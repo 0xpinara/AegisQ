@@ -195,6 +195,61 @@ def build_block() -> str:
             lines.append("![Strong scaling](benchmarks/plots/strong_scaling.png)")
             lines.append("")
 
+    kernels = report_module.kernel_table(report_module.load_kernels())
+    if not kernels.empty:
+        peak_threads = int(kernels["threads"].max())
+        at_peak = kernels[kernels["threads"] == peak_threads]
+        lines.append("### Are the local kernels any good?")
+        lines.append("")
+        lines.append(
+            "Wall time alone cannot say. State-vector simulation is bandwidth-bound, so "
+            "each kernel is compared against what the same machine achieves on an "
+            "in-place scale of the same array — same type, same flags, same threading. "
+            f"At {peak_threads} threads:"
+        )
+        lines.append("")
+        lines.append("| kernel | GB/s achieved | reference | fraction |")
+        lines.append("|---|---:|---:|---:|")
+        for row in at_peak.sort_values("fraction_of_inplace", ascending=False).itertuples():
+            lines.append(
+                f"| {row.kernel} | {row.gb_per_second:.1f} | "
+                f"{row.inplace_gb_per_second:.1f} | {row.fraction_of_inplace * 100:.0f}% |"
+            )
+        lines.append("")
+        full_sweep = at_peak[at_peak["kernel"].isin(["h", "rz"])]
+        partial = at_peak[at_peak["kernel"].isin(["cx", "cz", "swap"])]
+        if not full_sweep.empty and not partial.empty:
+            low = full_sweep["fraction_of_inplace"].min() * 100
+            high = full_sweep["fraction_of_inplace"].max() * 100
+            span = f"{low:.0f}%" if round(low) == round(high) else f"{low:.0f}–{high:.0f}%"
+            lines.append(
+                "The kernels that sweep the whole state — a general single-qubit gate and a "
+                f"diagonal one — run at {span} of that reference, "
+                "which is to say they are memory-bound and there is little left to win. "
+                "The ones that touch only part of the state plateau near "
+                f"{partial['fraction_of_inplace'].mean() * 100:.0f}%: they read and write a "
+                "strided fraction of the array and leave about half the bandwidth unused. "
+                "That is a concrete optimisation target rather than a mystery."
+            )
+            lines.append("")
+
+        positions = report_module.kernel_position_table(report_module.load_kernels())
+        if not positions.empty:
+            worst = positions.sort_values("spread", ascending=False).iloc[0]
+            best = positions.sort_values("spread").iloc[0]
+            lines.append(
+                "The communication cost model assumes only the local/global distinction "
+                "matters, never which *local* position a qubit occupies. Measured, that "
+                f"holds for most kernels (`{best['kernel']}` varies by "
+                f"{best['spread'] * 100:.0f}% across target positions) and fails for "
+                f"`{worst['kernel']}`, which varies by {worst['spread'] * 100:.0f}%. The "
+                "model is therefore right about network traffic and incomplete about local "
+                "cost — stated here rather than left for a reader to discover."
+            )
+            lines.append("")
+        lines.append("![Local kernel bandwidth](benchmarks/plots/kernel_bandwidth.png)")
+        lines.append("")
+
     pqc = report_module.load_pqc()
     primitives = report_module.pqc_table(pqc)
     envelope = report_module.pqc_envelope_table(pqc)

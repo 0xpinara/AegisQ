@@ -51,7 +51,7 @@ comparison is made here; see [docs/limitations.md](docs/limitations.md)).
 | Instrumentation | every MPI transfer timed and counted, per opcode, rank-local and world-reduced |
 | Security | ML-KEM-768 / ML-DSA-65 job envelopes, replay protection, signed Merkle-committed results |
 | Algorithms | GHZ, QFT, Trotterised Ising, Grover, Shor (factors 15 and 21), random circuits |
-| Measurement | reproducible sweeps writing raw CSV; every figure and table derived from it |
+| Measurement | reproducible sweeps writing raw CSV; every figure and table derived from it, including kernel bandwidth against a machine reference |
 | Validation | every distributed kernel checked against a single-process reference at 1/2/4/8 ranks, plus 100 randomised Qiskit comparisons per run |
 
 ## Research questions
@@ -109,7 +109,7 @@ aegisq doctor   # report MPI / OpenMP / liboqs / Qiskit availability
 
 <!-- BENCHMARK-RESULTS:START -->
 
-All figures below were measured on **Apple M2 (8 logical cores)**, macOS-15.6.1-arm64-arm-64bit, Open MPI v5.0.10, AegisQ 0.1.0 at commit `b67b6064b543`. They describe that host and are not a claim about cluster hardware.
+All figures below were measured on **Apple M2 (8 logical cores)**, macOS-15.6.1-arm64-arm-64bit, nan, AegisQ 0.1.0 at commit `dabb38de9c99`. They describe that host and are not a claim about cluster hardware.
 
 ### Communication-aware placement, 8 ranks, 20 qubits
 
@@ -157,6 +157,24 @@ Placement and fusion are not independent either: for `random` the pair removes 5
 | qft | 22 | 8 | 2.319 | 2.35x | 29% |
 
 ![Strong scaling](benchmarks/plots/strong_scaling.png)
+
+### Are the local kernels any good?
+
+Wall time alone cannot say. State-vector simulation is bandwidth-bound, so each kernel is compared against what the same machine achieves on an in-place scale of the same array — same type, same flags, same threading. At 8 threads:
+
+| kernel | GB/s achieved | reference | fraction |
+|---|---:|---:|---:|
+| rz | 68.8 | 69.8 | 98% |
+| h | 68.4 | 69.8 | 98% |
+| cz | 40.9 | 69.8 | 59% |
+| swap | 37.2 | 69.8 | 53% |
+| cx | 36.2 | 69.8 | 52% |
+
+The kernels that sweep the whole state — a general single-qubit gate and a diagonal one — run at 98% of that reference, which is to say they are memory-bound and there is little left to win. The ones that touch only part of the state plateau near 55%: they read and write a strided fraction of the array and leave about half the bandwidth unused. That is a concrete optimisation target rather than a mystery.
+
+The communication cost model assumes only the local/global distinction matters, never which *local* position a qubit occupies. Measured, that holds for most kernels (`cx` varies by 3% across target positions) and fails for `cz`, which varies by 57%. The model is therefore right about network traffic and incomplete about local cost — stated here rather than left for a reader to discover.
+
+![Local kernel bandwidth](benchmarks/plots/kernel_bandwidth.png)
 
 ### Cost of the post-quantum layer
 
