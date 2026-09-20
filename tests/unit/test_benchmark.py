@@ -287,6 +287,7 @@ def test_every_specialised_loader_has_a_matching_prefix():
         "kernels_": report.load_kernels,
         "placement_": report.load_placement_quality,
         "precision_": report.load_precision,
+        "calibration_": report.load_calibration,
     }
     assert set(loaders) == set(report.SPECIALISED_RAW_PREFIXES)
 

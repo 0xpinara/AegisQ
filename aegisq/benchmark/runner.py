@@ -65,6 +65,7 @@ RAW_FIELDS = [
     "global_qubits",
     "shots",
     "seed",
+    "launch",
     "repeat",
     # measurements
     "wall_seconds",
@@ -95,6 +96,7 @@ class BenchmarkConfig:
     shots: int = 0
     seed: int = 42
     repeats: int = 3
+    launch: int = 0
     warmup: int = 1
     thread_policy: str = "unspecified"
     options: dict[str, Any] = field(default_factory=dict)
@@ -305,6 +307,7 @@ def measure(config: BenchmarkConfig) -> list[dict[str, Any]]:
                 "global_qubits": " ".join(str(q) for q in global_qubits),
                 "shots": config.shots,
                 "seed": config.seed,
+                "launch": config.launch,
                 "repeat": repeat,
                 "wall_seconds": wall,
                 "compute_seconds": metrics.get("compute_seconds", 0.0),
@@ -368,6 +371,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument(
+        "--launch",
+        type=int,
+        default=0,
+        help=(
+            "index of this launch when a sweep runs the same configuration "
+            "several times; recorded so the analysis knows how many "
+            "independent launches a figure was reduced from"
+        ),
+    )
+    parser.add_argument(
         "--threads",
         type=int,
         default=0,
@@ -415,6 +428,7 @@ def main(argv: list[str] | None = None) -> int:
         shots=args.shots,
         seed=args.seed,
         repeats=args.repeats,
+        launch=args.launch,
         warmup=args.warmup,
         thread_policy=args.thread_policy,
         options=options,

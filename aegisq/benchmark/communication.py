@@ -40,6 +40,7 @@ def mapping_experiment(
     options: dict[str, list[str]] | None = None,
     thread_policy: str = "fixed-total-cores",
     levers: tuple[str, ...] = ("placement",),
+    launches: int = 1,
     verbose: bool = True,
 ) -> list[LaunchResult]:
     """Run every combination of the requested optimisation levers.
@@ -60,25 +61,43 @@ def mapping_experiment(
 
     for family in families:
         for count in ranks:
-            for mapping in mappings:
-                for fusion in fusions:
-                    args = _runner_args(
-                        family,
-                        qubits,
-                        "mapping_comparison",
-                        precision,
-                        mapping,
-                        repeats,
-                        shots,
-                        seed,
-                        output,
-                        options.get(family),
-                        thread_policy,
-                        fusion,
-                    )
-                    result = launch(count, args, threads=resolve_threads(count, thread_policy))
-                    if verbose:
-                        label = f"{mapping}{'+fusion' if fusion else ''}"
-                        _echo(result, f"levers {family} n={qubits} ranks={count} {label}")
-                    results.append(result)
+            # The launch loop sits outside the treatments, so each round
+            # visits every treatment once. Two things follow. Any drift in
+            # machine state is shared by the whole round instead of landing
+            # on whichever treatment happens to run last, and the estimator
+            # downstream -- `summarise` takes the minimum wall time over
+            # every row for a configuration -- becomes a minimum over
+            # independent launches rather than over three repeats inside
+            # one. That matters because the interference this machine
+            # produces is one-sided: it makes a launch slower, never
+            # faster, so the minimum converges on the uncontended runtime.
+            # Resampling the A/A calibration puts the gain at roughly
+            # 20% -> 10% -> 6% resolution for one, three and five launches.
+            for index in range(max(1, launches)):
+                for mapping in mappings:
+                    for fusion in fusions:
+                        args = _runner_args(
+                            family,
+                            qubits,
+                            "mapping_comparison",
+                            precision,
+                            mapping,
+                            repeats,
+                            shots,
+                            seed,
+                            output,
+                            options.get(family),
+                            thread_policy,
+                            fusion,
+                            launch_index=index,
+                        )
+                        result = launch(count, args, threads=resolve_threads(count, thread_policy))
+                        if verbose:
+                            label = f"{mapping}{'+fusion' if fusion else ''}"
+                            suffix = f" launch {index + 1}/{launches}" if launches > 1 else ""
+                            _echo(
+                                result,
+                                f"levers {family} n={qubits} ranks={count} {label}{suffix}",
+                            )
+                        results.append(result)
     return results

@@ -302,6 +302,51 @@ spread recorded alongside. Thread policy is an explicit variable: under
 partitioning rather than the benefit of adding processors. The two are never
 combined in one table.
 
+\subsection{Calibrating the harness}
+\label{sec:calibration}
+
+Byte counts are exact: they come from counters incremented where the runtime
+hands a buffer to MPI. Wall times are not, and on a single laptop the question
+of how small a difference this setup can see has to be answered before any
+timing is quoted. We answer it by measurement rather than assertion.
+
+For each configuration the identical run is launched twice and the apparent
+change $(t_2 - t_1)/t_1$ recorded, $\aegisqNullTrials$ times over. Nothing
+differs between the two launches, so every value is zero by construction and
+what the clock reports is the instrument. It reports a great deal: the largest
+apparent change with no change made is $\aegisqWorstNull$, and even the
+quietest configuration --- $\aegisqBestNullCircuit$, the longest-running
+circuit in the set --- scatters by $\aegisqBestNull$. This is an A/A test, and
+it settles an earlier version of Table~\ref{tab:mapping}, which reported a
+wall-time change of comparable size for a circuit whose byte count the
+optimiser had left exactly unchanged.
+
+We define the \emph{resolution} of a configuration as the largest apparent
+change over its null trials. An observed effect exceeding all $n$ of them has
+probability at most $1/(n+1)$ of arising by chance if the two conditions were
+exchangeable, which for $n = \aegisqNullTrials$ is $p \le
+\aegisqNullPBound$. It is a weak bound and we state it rather than imply a
+stronger one. A wall-time change is reported as \emph{resolved} only if it
+clears its own configuration's resolution and its repeat range does not
+overlap the baseline's; the resolution is measured per circuit family, because
+a GHZ chain finishing in eight milliseconds and a Grover circuit running for
+half a second are not equally timeable.
+
+The shape of the null also determines the right estimator. Interference on
+this machine is one-sided --- nothing schedules a launch to run faster than an
+uncontended one --- so launch times are right-skewed with a long upper tail,
+and the minimum over independent launches converges on the uncontended
+runtime while a mean chases the tail. Taking each arm as the minimum over $k$
+launches rather than over three repeats inside one launch moves the median
+resolution from $\aegisqResolutionOne$ at $k=1$ to $\aegisqResolutionThree$
+at $k=3$ and $\aegisqResolutionFive$ at $k=5$, estimated by resampling the
+measured launch times. The sweep supports this through
+\texttt{-{}-launches}.
+
+We draw the obvious conclusion rather than working around it: on this host
+most wall-time differences between placements are not resolvable, and we do
+not report them as speedups. The placement result is the traffic reduction.
+
 \subsection{Correctness}
 
 The native and distributed engines are validated against the NumPy reference

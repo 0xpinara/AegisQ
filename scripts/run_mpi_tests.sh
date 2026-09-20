@@ -16,6 +16,22 @@ if ! command -v mpirun >/dev/null 2>&1; then
     exit 0
 fi
 
+# Keep UCX off the InfiniBand transports.
+#
+# This suite is single-node by construction -- every rank is a process on
+# this machine. MPICH's UCX netmod does not know that and probes for RDMA
+# devices anyway; on a host with a partial rdma-core stack and no real
+# adapter, `ibv_create_srq()` returns "Operation not supported", UCX fails
+# to build a worker, and MPI_Init_thread aborts before a single test runs.
+# That is what had been failing about one run in four here, and why only
+# the MPICH leg failed: Open MPI selects shared memory on its own.
+#
+# Restricting the transport list to shared memory, loopback and TCP leaves
+# the relevant paths -- an intra-node exchange is a memory copy either way.
+# An explicit UCX_TLS is left alone, so a real cluster run can ask for the
+# fabric it actually has.
+export UCX_TLS="${UCX_TLS:-sm,self,tcp}"
+
 # Refuse to launch an interpreter that cannot run these tests. `python3` on
 # a developer machine is often the system one rather than the project's
 # virtualenv, and mpirun will happily start four ranks of it.

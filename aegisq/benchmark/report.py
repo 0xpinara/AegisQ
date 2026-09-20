@@ -43,7 +43,14 @@ CONFIG_KEYS = [
 #:
 #: Kept as a named constant rather than an inline condition because it has
 #: been forgotten twice when a new experiment was added.
-SPECIALISED_RAW_PREFIXES = ("pqc_", "search_", "kernels_", "placement_", "precision_")
+SPECIALISED_RAW_PREFIXES = (
+    "pqc_",
+    "search_",
+    "kernels_",
+    "placement_",
+    "precision_",
+    "calibration_",
+)
 
 
 def load_raw(source: Path | None = None) -> pd.DataFrame:
@@ -70,6 +77,8 @@ SCHEMA_DEFAULTS = {
     "fusion": "off",
     "thread_policy": "unspecified",
     "gates_before_fusion": 0,
+    # Rows predating multi-launch sweeps all came from a single launch.
+    "launch": 0,
 }
 
 
@@ -98,6 +107,7 @@ def summarise(data: pd.DataFrame) -> pd.DataFrame:
     data = normalise(data)
     grouped = data.groupby(CONFIG_KEYS, as_index=False).agg(
         repeats=("wall_seconds", "count"),
+        launches=("launch", "nunique"),
         wall_best=("wall_seconds", "min"),
         wall_median=("wall_seconds", "median"),
         wall_max=("wall_seconds", "max"),
@@ -205,7 +215,7 @@ def _intervals_are_disjoint(baseline, optimized) -> bool:
     )
 
 
-def _add_noise_floor(table: pd.DataFrame) -> pd.DataFrame:
+def _add_noise_floor(table: pd.DataFrame, calibration: pd.DataFrame | None = None):
     """Use the configurations where the optimiser did nothing as a control.
 
     Some circuits -- GHZ is the clear case -- have no placement to
@@ -236,6 +246,7 @@ def _add_noise_floor(table: pd.DataFrame) -> pd.DataFrame:
 
     table = table.copy()
     table["wall_noise_floor"] = float("nan")
+    table["floor_source"] = "none"
     group_keys = ["qubits", "ranks", "thread_policy", "precision"]
     for _, index in table.groupby(group_keys).groups.items():
         rows = table.loc[index]
@@ -243,17 +254,51 @@ def _add_noise_floor(table: pd.DataFrame) -> pd.DataFrame:
         if controls.empty:
             continue
         table.loc[index, "wall_noise_floor"] = controls["wall_change"].abs().max()
+        table.loc[index, "floor_source"] = "in-experiment control"
+
+    if calibration is not None and not calibration.empty:
+        # The A/A measurement supersedes the in-experiment control where it
+        # exists. It is better on two counts: it is per circuit family, so a
+        # Grover comparison is judged against Grover's own scatter rather
+        # than a GHZ chain's, and it is not confounded with whatever makes a
+        # given circuit unimprovable.
+        #
+        # The null is projected for however many launches the experiment
+        # itself reduced each arm over: a floor measured for a single
+        # launch is far too pessimistic for a figure taken as the minimum
+        # of five, and using it would throw away real effects.
+        for launches in sorted(table["launches"].unique()):
+            measured = calibration_table(calibration, launches=int(launches)).set_index(
+                ["circuit_family", "qubits", "ranks"]
+            )["resolution"]
+            for position, row in table[table["launches"] == launches].iterrows():
+                key = (row["circuit_family"], row["qubits"], row["ranks"])
+                if key in measured.index:
+                    table.loc[position, "wall_noise_floor"] = float(measured.loc[key])
+                    plural = "" if int(launches) == 1 else "es"
+                    table.loc[position, "floor_source"] = (
+                        f"A/A null, {int(launches)} launch{plural}"
+                    )
 
     floor = table["wall_noise_floor"]
     above_floor = floor.isna() | (table["wall_change"].abs() > floor)
     table["wall_change_resolved"] = table["wall_change_resolved"] & above_floor
-    # A control cannot resolve its own effect, by construction.
+    # A control cannot resolve its own effect, by construction. This still
+    # holds under the A/A floor: the traffic is identical, so the true
+    # effect is zero whatever the clock says.
     table.loc[table["bytes_reduction"] == 0.0, "wall_change_resolved"] = False
     return table
 
 
-def mapping_table(data: pd.DataFrame) -> pd.DataFrame:
-    """Measured effect of the communication-aware placement."""
+def mapping_table(data: pd.DataFrame, calibration: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Measured effect of the communication-aware placement.
+
+    Pass `calibration` (from `load_calibration`) to judge wall-time
+    differences against the harness's measured A/A null rather than
+    against the weaker in-experiment control. It is not loaded
+    implicitly, so a caller working with synthetic data gets synthetic
+    answers.
+    """
     subset = summarise(data[data["experiment"] == "mapping_comparison"])
     if subset.empty:
         return subset
@@ -299,11 +344,101 @@ def mapping_table(data: pd.DataFrame) -> pd.DataFrame:
                 "baseline_wall_max_s": d["wall_max"],
                 "optimized_wall_max_s": o["wall_max"],
                 "repeats": int(min(d["repeats"], o["repeats"])),
+                "launches": int(min(d["launches"], o["launches"])),
                 "predicted_baseline_bytes": int(d["predicted_bytes"]),
                 "predicted_optimized_bytes": int(o["predicted_bytes"]),
             }
         )
-    return _add_noise_floor(pd.DataFrame(rows))
+    return _add_noise_floor(pd.DataFrame(rows), calibration)
+
+
+def load_calibration(source: Path | None = None) -> pd.DataFrame:
+    """Read the A/A null measurements, if any exist."""
+    source = source or RAW_DIR
+    paths = sorted(source.glob("calibration_*.csv")) if source.is_dir() else [source]
+    frames = [pd.read_csv(path) for path in paths if path.exists()]
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+def calibration_table(
+    data: pd.DataFrame, launches: int = 1, resamples: int = 4000, seed: int = 0
+) -> pd.DataFrame:
+    """The harness's own resolution, per configuration.
+
+    `resolution` is the quantile of the apparent change, in absolute
+    value, at `1 - 1 / (trials + 1)`. That threshold is picked so the
+    statement it licenses is exact: an observed effect larger than every
+    one of `n` null trials has probability at most `1 / (n + 1)` under
+    exchangeability. With ten trials that is `p <= 0.09` -- a weak
+    claim, but a stated one.
+
+    `launches` projects the resolution for an experiment that reduces
+    each arm to the minimum over that many independent launches, which
+    is what `--launches` does in the placement sweep. It is estimated by
+    resampling the measured launch times rather than by re-measuring:
+    the pool already contains every combination, and a question about
+    the null's own tail needs no new data.
+
+    The `p` bound is exact only at one launch, where the threshold is a
+    value the trials actually produced. Beyond that it is a resampled
+    estimate of the same threshold and inherits the bootstrap's error,
+    which is why the column reporting it also reports the launch count.
+
+    The minimum is the estimator worth projecting because this machine's
+    interference is one-sided. Nothing schedules a launch to run faster
+    than an uncontended one, so the distribution is right-skewed with a
+    long upper tail and the minimum converges on the clean runtime as
+    launches are added. A mean would not; it would chase the tail.
+    """
+    import numpy as np
+
+    if data.empty:
+        return data
+    frame = data.copy()
+    frame["absolute_change"] = frame["apparent_change"].abs()
+    table = (
+        frame.groupby(["circuit_family", "qubits", "ranks"], as_index=False)
+        .agg(
+            trials=("apparent_change", "count"),
+            median_wall_s=("first_wall_s", "median"),
+            median_absolute_change=("absolute_change", "median"),
+            most_negative=("apparent_change", "min"),
+            most_positive=("apparent_change", "max"),
+        )
+        .sort_values(["ranks", "circuit_family"])
+        .reset_index(drop=True)
+    )
+    table["launches"] = max(1, int(launches))
+    table["p_bound"] = 1.0 / (table["trials"] + 1)
+
+    rng = np.random.default_rng(seed)
+    resolutions = []
+    for row in table.itertuples():
+        cell = frame[
+            (frame["circuit_family"] == row.circuit_family)
+            & (frame["qubits"] == row.qubits)
+            & (frame["ranks"] == row.ranks)
+        ]
+        quantile = 1.0 - row.p_bound
+        if row.launches <= 1:
+            # `interpolation="higher"` rather than the default linear one.
+            # The guarantee is a statement about the measured trials -- an
+            # effect larger than all n of them -- so the threshold has to be
+            # a value one of them actually took. Interpolating between the
+            # top two lands below the largest and quietly weakens the bound
+            # into something the data does not support.
+            resolutions.append(
+                float(cell["absolute_change"].quantile(quantile, interpolation="higher"))
+            )
+            continue
+        pool = np.concatenate([cell["first_wall_s"].to_numpy(), cell["second_wall_s"].to_numpy()])
+        draws = rng.choice(pool, size=(resamples, 2, row.launches), replace=True).min(axis=2)
+        changes = np.abs((draws[:, 1] - draws[:, 0]) / draws[:, 0])
+        resolutions.append(float(np.quantile(changes, quantile)))
+    table["resolution"] = resolutions
+    return table
 
 
 def load_pqc(source: Path | None = None) -> pd.DataFrame:
@@ -844,6 +979,58 @@ def plot_precision(table: pd.DataFrame, path: Path, host: str = "") -> Path | No
     return _save(fig, path)
 
 
+def plot_calibration(table: pd.DataFrame, path: Path, host: str = "") -> Path | None:
+    """What the harness can resolve, against how long the circuit runs.
+
+    The relationship is the point: a GHZ chain finishing in 8 ms cannot
+    be timed to better than tens of percent, while a Grover circuit
+    running for half a second can. Any wall-time claim has to be read
+    against the point for its own configuration.
+    """
+    if table.empty:
+        return None
+    plt = _figure()
+    fig, ax = plt.subplots(figsize=(7, 4.4), facecolor=SURFACE)
+    ax.set_facecolor(SURFACE)
+
+    for index, (ranks, group) in enumerate(table.groupby("ranks")):
+        ax.scatter(
+            group["median_wall_s"] * 1000,
+            group["resolution"] * 100,
+            s=64,
+            color=SERIES_COLORS[index % len(SERIES_COLORS)],
+            edgecolor=SURFACE,
+            linewidth=2,
+            label=f"{int(ranks)} ranks",
+            zorder=3,
+        )
+        for row in group.itertuples():
+            ax.annotate(
+                row.circuit_family,
+                (row.median_wall_s * 1000, row.resolution * 100),
+                textcoords="offset points",
+                xytext=(7, 3),
+                fontsize=7,
+                color=INK_MUTED,
+            )
+
+    ax.set_xscale("log")
+    _style_axes(
+        ax,
+        "Resolution of the measurement harness (A/A null)",
+        "median wall time of one launch (ms)",
+        "largest apparent change with no change made (%)",
+    )
+    ax.legend(fontsize=8, frameon=False, labelcolor=INK_MUTED)
+    fig.suptitle(
+        f"A wall-time change smaller than its point is not a result{f' — {host}' if host else ''}",
+        fontsize=12,
+        color=INK,
+    )
+    fig.tight_layout()
+    return _save(fig, path)
+
+
 def prediction_accuracy(data: pd.DataFrame) -> pd.DataFrame:
     """Does the cost model's prediction match what was measured?"""
     summary = summarise(data)
@@ -1159,7 +1346,16 @@ def write_reports(
         if figure:
             written["weak_scaling_plot"] = figure
 
-    mapping = mapping_table(data)
+    calibration = load_calibration(raw if raw and raw.is_dir() else None)
+    if not calibration.empty:
+        resolution = calibration_table(calibration)
+        resolution.to_csv(processed / "calibration.csv", index=False)
+        written["calibration"] = processed / "calibration.csv"
+        figure = plot_calibration(resolution, plots / "calibration.png", host)
+        if figure:
+            written["calibration_plot"] = figure
+
+    mapping = mapping_table(data, calibration)
     if not mapping.empty:
         mapping.to_csv(processed / "mapping_comparison.csv", index=False)
         written["mapping_comparison"] = processed / "mapping_comparison.csv"
@@ -1254,7 +1450,7 @@ def markdown_summary(raw: Path | None = None) -> str:
     lines.append(f"- AegisQ {host['aegisq_version']} at commit `{str(host['git_commit'])[:12]}`")
     lines.append("")
 
-    mapping = mapping_table(data)
+    mapping = mapping_table(data, load_calibration())
     if not mapping.empty:
         lines.append("## Communication-aware placement (measured)")
         lines.append("")

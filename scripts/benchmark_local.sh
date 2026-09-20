@@ -24,6 +24,14 @@ if ! "$PYTHON" -c "import aegisq.benchmark.runner" >/dev/null 2>&1; then
     exit 1
 fi
 
+echo "==> harness calibration: the same run against itself (${TRIALS:-10} trials/cell)"
+# Measured first and under the same conditions as the placement sweep that
+# follows, because it is the null those results are judged against.
+"$PYTHON" -m aegisq.cli.main benchmark calibrate \
+    --circuits ghz,qft,ising,grover,random \
+    --qubits "$QUBITS" --ranks "$RANKS" --trials "${TRIALS:-10}" \
+    --option grover:iterations=2
+
 echo "==> optimisation levers (${QUBITS} qubits, ranks ${RANKS})"
 "$PYTHON" -m aegisq.cli.main benchmark mapping \
     --circuits ghz,qft,ising,random,grover \

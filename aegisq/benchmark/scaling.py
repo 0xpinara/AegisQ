@@ -122,6 +122,7 @@ def _runner_args(
     options: list[str] | None,
     thread_policy: str = "unspecified",
     fusion: bool = False,
+    launch_index: int = 0,
 ) -> list[str]:
     args = [
         "--circuit",
@@ -144,6 +145,8 @@ def _runner_args(
         str(output),
         "--thread-policy",
         thread_policy,
+        "--launch",
+        str(launch_index),
     ]
     if fusion:
         args.append("--fuse")

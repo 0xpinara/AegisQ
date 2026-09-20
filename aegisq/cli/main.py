@@ -57,6 +57,15 @@ def _load_circuit(source: str, num_qubits: int | None, options: dict[str, str]):
     return build_circuit(source, num_qubits, **typed)
 
 
+def _per_family_options(items: list[str] | None) -> dict[str, list[str]]:
+    """Split `family:key=value` arguments into per-family option lists."""
+    grouped: dict[str, list[str]] = {}
+    for item in items or []:
+        family, _, option = item.partition(":")
+        grouped.setdefault(family, []).append(option)
+    return grouped
+
+
 def _parse_options(items: list[str] | None) -> dict[str, str]:
     """Parse repeated `--option key=value` flags."""
     parsed: dict[str, str] = {}
@@ -331,6 +340,25 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
         print("  aegisq benchmark report")
         return 0
 
+    if args.benchmark_command == "calibrate":
+        from aegisq.benchmark.calibration import run_suite as run_calibration
+
+        output = args.output or default_raw_path("calibration")
+        print(f"Writing raw A/A calibration measurements to {output}")
+        print("Each trial launches the same configuration twice; nothing should differ.")
+        run_calibration(
+            output,
+            qubits=args.qubits,
+            ranks=_parse_rank_list(args.ranks),
+            families=[f.strip() for f in args.circuits.split(",")],
+            trials=args.trials,
+            options=_per_family_options(args.option),
+        )
+        print()
+        print("Raw data written. Regenerate tables with:")
+        print("  aegisq benchmark report")
+        return 0
+
     if args.benchmark_command == "placement":
         from aegisq.benchmark.placement_quality import run_suite as run_placement
 
@@ -446,6 +474,7 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
             options=per_family,
             thread_policy=args.thread_policy,
             levers=tuple(lever.strip() for lever in args.levers.split(",")),
+            launches=args.launches,
         )
 
     print()
@@ -936,6 +965,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--option", action="append", metavar="FAMILY:KEY=VALUE", help="per-family option"
     )
     mapping_cmd.add_argument(
+        "--launches",
+        type=int,
+        default=1,
+        help=(
+            "independent launches of each configuration; the wall time "
+            "reported is the minimum over all of them, which is the right "
+            "estimator when interference is one-sided (see the calibration "
+            "suite for the measured effect on resolution)"
+        ),
+    )
+    mapping_cmd.add_argument(
         "--levers",
         default="placement",
         help="comma-separated optimisation levers to sweep: placement, fusion",
@@ -969,6 +1009,25 @@ def build_parser() -> argparse.ArgumentParser:
     precision_cmd.add_argument("--samples", type=int, default=5)
     precision_cmd.add_argument("--output", type=Path)
     precision_cmd.set_defaults(func=_cmd_benchmark)
+
+    calibrate_cmd = benchmark_sub.add_parser(
+        "calibrate",
+        help="measure the harness's own resolution by comparing runs against themselves",
+    )
+    calibrate_cmd.add_argument("--qubits", type=int, default=20)
+    calibrate_cmd.add_argument("--ranks", default="2,4,8")
+    calibrate_cmd.add_argument("--circuits", default="ghz,qft,ising,grover,random")
+    calibrate_cmd.add_argument(
+        "--trials",
+        type=int,
+        default=10,
+        help="null trials per configuration; the p-value bound is 1/(trials+1)",
+    )
+    calibrate_cmd.add_argument(
+        "--option", action="append", default=[], metavar="KEY=VALUE", help="circuit option"
+    )
+    calibrate_cmd.add_argument("--output", type=Path)
+    calibrate_cmd.set_defaults(func=_cmd_benchmark)
 
     placement_cmd = benchmark_sub.add_parser(
         "placement",

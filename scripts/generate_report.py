@@ -46,7 +46,7 @@ def build_block() -> str:
     cores = describe("logical_cores", "0")
     with contextlib.suppress(ValueError):
         cores = str(int(float(cores)))
-    mapping = report_module.mapping_table(data)
+    mapping = report_module.mapping_table(data, report_module.load_calibration())
     strong = report_module.strong_scaling_table(data)
     accuracy = report_module.prediction_accuracy(data)
 
@@ -129,16 +129,14 @@ def build_block() -> str:
         lines.append("")
         floor = interesting["wall_noise_floor"].dropna()
         if not floor.empty:
+            source = str(interesting["floor_source"].mode().iloc[0])
             lines.append(
-                f"Byte counts are exact counters. Wall times are not, and at this size they "
-                f"are barely a measurement: the circuits with a 0.0% reduction send byte for "
-                f"byte what the default sends, so their true wall-time effect is zero, and the "
-                f"clock still reported up to **{floor.max() * 100:.1f}%**. That is the noise "
-                "floor of this experiment, measured rather than assumed, and a change is "
-                "marked unresolved unless it clears the floor and its repeat ranges do not "
-                "overlap the baseline's. Most do not clear it. The placement result is the "
-                "traffic reduction; the wall-time column is reported for completeness and "
-                "should not be read as a speedup on this host."
+                f"Byte counts are exact counters; wall times are not. Each row's wall-time "
+                f"change is judged against a floor measured for that exact configuration "
+                f"({source}, see below), and is marked unresolved unless it clears the floor "
+                f"and its repeat range does not overlap the baseline's. At these sizes most "
+                f"do not clear it. **The placement result is the traffic reduction.** The "
+                f"wall-time column is shown for completeness and is not a speedup claim."
             )
             lines.append("")
         unchanged = [
@@ -156,6 +154,65 @@ def build_block() -> str:
             )
         lines.append("")
         lines.append("![Communication-aware placement](benchmarks/plots/mapping_comparison.png)")
+        lines.append("")
+
+    calibration = report_module.load_calibration()
+    if not calibration.empty:
+        resolution = report_module.calibration_table(calibration)
+        trials = int(resolution["trials"].min())
+        lines.append("### What this harness can actually resolve")
+        lines.append("")
+        lines.append(
+            f"Before reading any wall-time number above, here is what the measurement "
+            f"setup can see. Each configuration below was launched twice, {trials} times "
+            f"over, with **nothing changed between the two runs**. Every difference in "
+            f"this table is therefore zero by construction, and everything reported is "
+            f"the instrument, not the simulator."
+        )
+        lines.append("")
+        lines.append(
+            "| circuit | ranks | median run | median apparent change | worst | resolution |"
+        )
+        lines.append("|---|---:|---:|---:|---:|---:|")
+        for row in resolution.sort_values(["ranks", "circuit_family"]).itertuples():
+            worst = max(abs(row.most_negative), abs(row.most_positive))
+            lines.append(
+                f"| {row.circuit_family} | {int(row.ranks)} | "
+                f"{row.median_wall_s * 1000:.0f} ms | "
+                f"{row.median_absolute_change * 100:.1f}% | {worst * 100:.1f}% | "
+                f"**{row.resolution * 100:.1f}%** |"
+            )
+        lines.append("")
+        p_bound = float(resolution["p_bound"].max())
+        lines.append(
+            f"`resolution` is the quantile of the apparent change at "
+            f"`1 - 1/(trials+1)`, so an effect exceeding it carries `p <= {p_bound:.2f}` "
+            f"under exchangeability. The relationship worth noting is with duration, not "
+            f"with rank count: a GHZ chain finishing in under ten milliseconds cannot be "
+            f"timed to better than tens of percent, while a Grover circuit running for "
+            f"half a second can. This is a laptop with four performance and four "
+            f"efficiency cores and no separate interconnect, and the distribution of "
+            f"launch times is right-skewed -- interference makes a run slower, never "
+            f"faster."
+        )
+        lines.append("")
+        projected = {
+            k: report_module.calibration_table(calibration, launches=k)["resolution"].median()
+            for k in (1, 3, 5)
+        }
+        lines.append(
+            "That one-sidedness says which estimator to use. Taking the minimum over "
+            "several independent launches, rather than over repeats inside one, "
+            "converges on the uncontended runtime; resampling the null above puts the "
+            "median resolution at "
+            + ", ".join(
+                f"**{value * 100:.0f}%** at {k} launch" + ("" if k == 1 else "es")
+                for k, value in projected.items()
+            )
+            + ". `aegisq benchmark mapping --launches N` runs the sweep that way."
+        )
+        lines.append("")
+        lines.append("![Harness resolution](benchmarks/plots/calibration.png)")
         lines.append("")
 
     levers = report_module.lever_table(data)
@@ -540,7 +597,7 @@ def write_paper_tables() -> list[Path]:
         path.write_text(text, encoding="utf-8")
         written.append(path)
 
-    mapping = report_module.mapping_table(data)
+    mapping = report_module.mapping_table(data, report_module.load_calibration())
     if not mapping.empty:
         subset = mapping[mapping["ranks"] == mapping["ranks"].max()].sort_values(
             "bytes_reduction", ascending=False
@@ -674,7 +731,7 @@ def write_measured_macros(data, directory: Path) -> Path:
     """
     from aegisq.benchmark import report as report_module
 
-    mapping = report_module.mapping_table(data)
+    mapping = report_module.mapping_table(data, report_module.load_calibration())
     accuracy = report_module.prediction_accuracy(data)
     pqc = report_module.pqc_table(report_module.load_pqc())
     envelope = report_module.pqc_envelope_table(report_module.load_pqc())
@@ -701,11 +758,25 @@ def write_measured_macros(data, directory: Path) -> Path:
         if not floor.empty:
             define("aegisqWallNoiseFloor", f"{float(floor.max()) * 100:.1f}\\%")
 
+    calibration = report_module.load_calibration()
+    if not calibration.empty:
+        for k, name in ((1, "One"), (3, "Three"), (5, "Five")):
+            projected = report_module.calibration_table(calibration, launches=k)
+            define(
+                f"aegisqResolution{name}",
+                f"{projected['resolution'].median() * 100:.0f}\\%",
+            )
+        measured = report_module.calibration_table(calibration)
+        define("aegisqNullTrials", f"{int(measured['trials'].min())}")
+        define("aegisqNullPBound", f"{float(measured['p_bound'].max()):.2f}")
+        define("aegisqWorstNull", f"{float(measured['resolution'].max()) * 100:.0f}\\%")
+        best = measured.loc[measured["resolution"].idxmin()]
+        define("aegisqBestNull", f"{float(best['resolution']) * 100:.1f}\\%")
+        define("aegisqBestNullCircuit", str(best["circuit_family"]).upper())
+
     levers = report_module.lever_table(data)
     if not levers.empty:
-        widest_levers = levers[levers["ranks"] == levers["ranks"].max()].set_index(
-            "circuit_family"
-        )
+        widest_levers = levers[levers["ranks"] == levers["ranks"].max()].set_index("circuit_family")
         lever_columns = {
             "Fusion": "fusion_only_reduction",
             "Placement": "placement_only_reduction",
