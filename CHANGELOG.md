@@ -99,3 +99,10 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   are encrypted together so parameters cannot be separated from the program.
 - `aegisq secure-pack` and `aegisq secure-inspect` (metadata without
   decrypting, and without needing any key).
+- Replay protection: a locked, atomically-replaced state file of accepted job
+  identifiers, with honest documentation of its limits (per-installation
+  scope, flock semantics on NFS, opt-in pruning).
+- `aegisq secure-run`: structure, trusted-key lookup, signature, addressee,
+  replay state, decryption and circuit hash — in that order — then execution.
+  Under mpirun every rank refuses a replayed job while only rank 0 records it,
+  so the ranks cannot disagree and deadlock.

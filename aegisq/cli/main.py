@@ -471,6 +471,134 @@ def _cmd_secure_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_secure_run(args: argparse.Namespace) -> int:
+    """Verify, decrypt and execute an authenticated job bundle.
+
+    The order of checks is the point: nothing inside the envelope is trusted
+    until the signature verifies against a key the cluster already knows.
+    """
+    import json
+
+    from aegisq.runtime import Simulator
+    from aegisq.runtime.distributed import is_distributed, preferred_backend, rank, world_size
+    from aegisq.secure.envelope import EnvelopeError, open_job, read_job
+    from aegisq.secure.keys import IdentityError, load_identity, load_trusted_directory
+    from aegisq.secure.replay import ReplayDatabase, ReplayDetected
+    from aegisq.secure.signatures import SignatureError
+
+    is_lead = rank() == 0
+
+    try:
+        cluster = load_identity(args.cluster)
+        trusted = load_trusted_directory(args.trusted)
+        opened = open_job(read_job(args.bundle), cluster, trusted)
+    except (IdentityError, EnvelopeError, SignatureError) as exc:
+        raise SystemExit(f"job rejected: {exc}") from None
+
+    manifest = opened.manifest
+    database = ReplayDatabase(args.replay_db)
+    try:
+        # Every rank refuses a replayed job; only rank 0 records it, so the
+        # ranks cannot disagree and deadlock.
+        database.check(manifest.job_id)
+        if is_lead:
+            database.record(
+                manifest.job_id,
+                manifest.nonce,
+                opened.client.signature_fingerprint,
+                manifest.created_at,
+            )
+    except ReplayDetected as exc:
+        raise SystemExit(f"job rejected: {exc}") from None
+
+    requested_ranks = manifest.execution.ranks
+    actual_ranks = world_size()
+    if is_lead and requested_ranks != actual_ranks:
+        print(
+            f"note: job requested {requested_ranks} rank(s) but this world has "
+            f"{actual_ranks}; running as launched and recording both",
+            file=sys.stderr,
+        )
+
+    options: dict[str, object] = {}
+    placement = None
+    if manifest.execution.mapping_strategy == "optimized" and is_distributed():
+        from aegisq.compiler import optimize_placement
+
+        placement = optimize_placement(opened.circuit, actual_ranks, manifest.execution.precision)
+        options["mapping"] = list(placement.mapping)
+
+    backend = preferred_backend()
+    simulator = Simulator(backend, precision=manifest.execution.precision, **options)
+    result = simulator.run(
+        opened.circuit,
+        shots=manifest.execution.shots,
+        seed=manifest.execution.seed,
+        save_statevector=False,
+    )
+
+    if not is_lead:
+        return 0
+
+    payload = {
+        "job_id": manifest.job_id,
+        "client": {
+            "name": opened.client.name,
+            "fingerprint": opened.client.signature_fingerprint,
+        },
+        "circuit": {
+            "name": manifest.circuit_name,
+            "sha256": manifest.circuit_sha256,
+            "num_qubits": manifest.num_qubits,
+            "gates": manifest.gate_count,
+            "depth": manifest.depth,
+        },
+        "execution": {
+            "requested_ranks": requested_ranks,
+            "world_size": actual_ranks,
+            "backend": backend,
+            "precision": manifest.execution.precision,
+            "shots": manifest.execution.shots,
+            "seed": manifest.execution.seed,
+            "mapping_strategy": manifest.execution.mapping_strategy,
+            "global_qubits": list(placement.global_qubits) if placement else None,
+        },
+        "counts": result.counts,
+        "metrics": {k: v for k, v in result.metrics.items() if k != "per_opcode"},
+    }
+
+    if args.output:
+        args.output.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+
+    print(f"Job {manifest.job_id} accepted")
+    print(f"  signed by:      {opened.client.name} ({opened.client.signature_fingerprint})")
+    print(
+        f"  circuit:        {manifest.circuit_name} "
+        f"({manifest.num_qubits} qubits, {manifest.gate_count} gates)"
+    )
+    print(f"  circuit sha256: {manifest.circuit_sha256}")
+    print(
+        f"  executed on:    {actual_ranks} rank(s), backend {backend}, "
+        f"{manifest.execution.precision}"
+    )
+    if placement is not None:
+        print(f"  placement:      global qubits {list(placement.global_qubits)}")
+    print()
+    if result.counts:
+        total = sum(result.counts.values())
+        print(f"Counts ({total} shots, top {args.top}):")
+        for bitstring, count in result.most_frequent(args.top):
+            print(f"  {bitstring}  {count:>8}  {count / total * 100:6.2f}%")
+        print()
+    if args.output:
+        print(f"Result written to {args.output}")
+    return 0
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     """Report what the local machine can and cannot do."""
     from aegisq.runtime import hardware
@@ -698,6 +826,34 @@ def build_parser() -> argparse.ArgumentParser:
     secure_inspect.add_argument("bundle", type=Path)
     secure_inspect.add_argument("--json", action="store_true")
     secure_inspect.set_defaults(func=_cmd_secure_inspect)
+
+    secure_run = subparsers.add_parser(
+        "secure-run",
+        help="verify, decrypt and execute a job bundle",
+        description=(
+            "Checks in order: envelope structure, client key against the "
+            "cluster's trusted set, ML-DSA signature, addressee, replay state, "
+            "then decryption and the circuit hash. Nothing inside the envelope "
+            "is trusted until the signature verifies."
+        ),
+    )
+    secure_run.add_argument("bundle", type=Path)
+    secure_run.add_argument(
+        "--cluster", type=Path, required=True, help="cluster identity base path"
+    )
+    secure_run.add_argument(
+        "--trusted",
+        type=Path,
+        required=True,
+        help="directory of trusted client public identities",
+    )
+    secure_run.add_argument(
+        "--replay-db", type=Path, default=Path("replay_db.json"), help="replay state file"
+    )
+    secure_run.add_argument("--output", type=Path, help="write the result as JSON")
+    secure_run.add_argument("--top", type=int, default=10)
+    secure_run.add_argument("--json", action="store_true")
+    secure_run.set_defaults(func=_cmd_secure_run)
 
     estimate = subparsers.add_parser(
         "estimate",
