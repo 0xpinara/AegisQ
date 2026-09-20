@@ -13,7 +13,7 @@ BUILD_TYPE  ?= Release
 MPI_RANKS   ?= 4
 CMAKE_FLAGS ?=
 
-.PHONY: all configure build install test test-cpp test-python test-mpi benchmark lint format clean distclean
+.PHONY: all configure build install test test-cpp test-python test-mpi benchmark report paper lint format clean distclean
 
 all: build
 
@@ -42,6 +42,13 @@ test-mpi: build
 
 benchmark:
 	./scripts/benchmark_local.sh
+
+report:
+	$(PYTHON) scripts/generate_report.py
+
+paper: report
+	@command -v tectonic >/dev/null && (cd paper && tectonic main.tex) || \
+		echo "tectonic not installed; see paper/main.tex"
 
 lint:
 	$(PYTHON) -m ruff check aegisq tests scripts

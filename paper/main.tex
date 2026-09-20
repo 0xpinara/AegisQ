@@ -1,0 +1,415 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\usepackage{microtype}
+
+% Dirac notation without pulling in the physics package, which is not always
+% present in a minimal TeX installation.
+\newcommand{\ket}[1]{\left|#1\right\rangle}
+
+\title{AegisQ-HPC: Communication-Aware Distributed Quantum Simulation\\
+       with Post-Quantum Secure Job Provenance}
+\author{Pinar Aksoy}
+\date{Technical report, \today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Simulating an $n$-qubit quantum circuit costs $2^n$ amplitudes, so beyond
+roughly thirty qubits the state vector must be partitioned across the memory
+of several machines. Partitioning turns some quantum gates into network
+operations, and which gates depends entirely on an arbitrary choice: which
+logical qubits are assigned to the bits of the basis index that select a rank.
+We present AegisQ-HPC, a distributed state-vector simulator that makes this
+choice deliberately. Every byte the runtime hands to MPI is instrumented, an
+analytical cost model predicts that traffic from the circuit structure, and a
+search over qubit placements minimises it. On a single 8-core host with
+shared-memory MPI, communication-aware placement removes $87.2\%$ of measured
+MPI traffic for a 20-qubit quantum Fourier transform on 8 ranks (wall time
+$-24.3\%$) and $72.3\%$ for a Grover circuit, while leaving a GHZ chain
+unchanged; the cost model predicted the byte count exactly in all 42
+distributed configurations measured. We additionally protect job submission
+and result provenance with the NIST-standardised post-quantum primitives
+ML-KEM-768 and ML-DSA-65, and measure that overhead: $1.49\%$ of the runtime
+of the heaviest job in our suite, of which only $189\,\mu$s is lattice
+arithmetic. All results are from one laptop; we are explicit throughout about
+what that does and does not support.
+\end{abstract}
+
+\section{Introduction}
+
+A pure quantum state of $n$ qubits is a unit vector
+\begin{equation}
+\ket{\psi} = \sum_{i=0}^{2^n-1} \alpha_i \ket{i}, \qquad
+\sum_i |\alpha_i|^2 = 1 ,
+\end{equation}
+where we write $\ket{\cdot}$ for a computational basis state. Storing the
+amplitudes explicitly costs $O(2^n)$: in double precision, 30 qubits is
+16\,GiB and 40 qubits is 16\,TiB. Single-machine simulation therefore becomes
+memory-bound long before it becomes compute-bound, and the standard response is
+to distribute the state vector across the memory of many nodes
+\cite{deraedt2007,quest2019}.
+
+Distribution introduces a cost that does not exist on one machine.
+With $P = 2^p$ ranks, each rank holds $2^{n-p}$ amplitudes and the high $p$
+bit positions of a basis index select the rank that owns it. A gate acting on a
+qubit in one of those positions may have to move amplitudes between ranks. The
+assignment of logical qubits to bit positions is, however, free: nothing forces
+qubit $q$ to occupy position $q$. The default assignment --- the identity
+permutation --- is an accident of indexing, and for some circuits it is close
+to the worst possible choice.
+
+This report describes a system built around three questions.
+
+\begin{description}
+\item[RQ1] Can communication-aware qubit placement reduce MPI communication
+  volume and wall-clock time for distributed state-vector simulation?
+\item[RQ2] What overhead does authenticating and encrypting HPC quantum jobs
+  and results with standardised post-quantum cryptography introduce?
+\item[RQ3] How do small Grover and Shor experiments illustrate the
+  cryptographic motivation for post-quantum cryptography?
+\end{description}
+
+The simulator is implemented from scratch in C++20 with MPI and OpenMP.
+Qiskit \cite{qiskit} is used only as an external correctness oracle in the test
+suite; it is never imported by the runtime.
+
+\section{Background}
+
+\subsection{State-vector simulation}
+
+A single-qubit gate with matrix $U$ acting on qubit $q$ pairs each amplitude
+$\alpha_i$ with $\alpha_{i \oplus 2^q}$ and applies $U$ to the pair. Enumerating
+the $2^{n-1}$ pair representatives touches every amplitude exactly once, which
+makes the kernel a strided, embarrassingly parallel sweep --- the reason
+state-vector simulation threads well and the reason it is bandwidth-bound.
+
+Two structural properties of a gate determine its behaviour under
+partitioning. A \emph{diagonal} gate multiplies each amplitude by a scalar
+that depends only on that amplitude's index, so it never moves data. A
+\emph{control} qubit is only read, never written. Both properties turn out to
+matter more than the gate's name.
+
+\subsection{Distributed-memory simulation}
+
+Established distributed simulators partition the state vector across
+processes and exchange shards for gates acting on the high-order qubits
+\cite{deraedt2007,quest2019,cuquantum}. The usual treatment of placement is to
+apply gates to whichever qubits they name, occasionally reordering qubits so
+that the expensive ones become local. We make that reordering the object of
+study: the runtime carries an explicit logical-to-physical permutation, a cost
+model predicts its consequences in bytes, and a search chooses it.
+
+\subsection{Post-quantum cryptography}
+
+NIST standardised module-lattice key encapsulation as ML-KEM (FIPS 203
+\cite{fips203}) and module-lattice signatures as ML-DSA (FIPS 204
+\cite{fips204}) in 2024. We use the reference implementations in liboqs
+\cite{liboqs} through its Python binding, with HKDF-SHA256 \cite{rfc5869} for
+key derivation and AES-256-GCM \cite{sp800038d} for payload encryption. No
+cryptographic primitive is implemented in this project.
+
+\section{System architecture}
+
+AegisQ-HPC is four cooperating layers.
+
+\begin{enumerate}
+\item A \textbf{front end} providing a circuit IR over twelve gates
+  (\texttt{x y z h s t rx ry rz cx cz swap}) and a documented OpenQASM subset.
+  Anything outside the subset is rejected with a line number rather than
+  ignored.
+\item A \textbf{native core} in C++20: local kernels shared by single-process
+  and distributed execution, an MPI runtime, and a communication profiler.
+\item A \textbf{compiler} comprising an analytical communication cost model and
+  a placement search.
+\item A \textbf{security layer} providing ML-KEM/ML-DSA job envelopes and
+  signed, Merkle-committed result provenance.
+\end{enumerate}
+
+A deliberately simple NumPy reference simulator is the correctness oracle for
+everything else; the C++ and MPI engines are validated against it gate by gate
+and on randomised circuits.
+
+\section{Distributed simulation runtime}
+
+\subsection{Partitioning}
+
+With $P = 2^p$ ranks and $n$ qubits, a physical basis index splits as
+\begin{equation}
+\text{physical} = (\text{rank} \ll L) \mathbin{|} \text{local}, \qquad L = n - p ,
+\end{equation}
+so the low $L$ bit positions are \emph{local} and the high $p$ are
+\emph{global}. A layout object carries a permutation
+$\pi : [0,n) \to [0,n)$ mapping logical qubits to bit positions, defaulting to
+the identity. Every kernel reads placement only through predicates
+(\texttt{is\_local}, \texttt{global\_position}, \texttt{partner\_rank}), so
+changing the permutation requires no change to any kernel.
+
+The initial state $\ket{0\cdots 0}$ is physical index $0$ under every
+permutation and lives on rank $0$, so initialisation needs no communication.
+
+\subsection{Which gates communicate}
+
+Let $S = 2^{L}$ be the shard size in amplitudes and $w$ the bytes per
+amplitude. Table~\ref{tab:costs} summarises the traffic per gate placement;
+it is the cost model and it is also exactly what the runtime does.
+
+\begin{table}[t]
+\centering
+\begin{tabular}{llrr}
+\toprule
+Gate & Placement & Bytes (all ranks) & Messages \\
+\midrule
+\texttt{z s t rz cz} & any & $0$ & $0$ \\
+\texttt{x y h rx ry} & local & $0$ & $0$ \\
+\texttt{x y h rx ry} & global & $P S w$ & $P$ \\
+\texttt{cx} & local target & $0$ & $0$ \\
+\texttt{cx} & local control, global target & $P S w / 2$ & $P$ \\
+\texttt{cx} & global control, global target & $P S w / 2$ & $P/2$ \\
+\texttt{swap} & both local & $0$ & $0$ \\
+\texttt{swap} & one global & $P S w / 2$ & $P$ \\
+\texttt{swap} & both global & $P S w / 2$ & $P/2$ \\
+\bottomrule
+\end{tabular}
+\caption{Communication per gate and placement.}
+\label{tab:costs}
+\end{table}
+
+Three entries deserve comment.
+
+\emph{Diagonal gates are free even on a global qubit.} The rank identifier
+fixes that qubit's value for every amplitude the rank holds, so the gate
+collapses to a single scalar multiply of the whole shard.
+
+\emph{A global control is cheap; a global target is not.} A control is read,
+so a rank that does not satisfy it skips the gate entirely and a rank that does
+proceeds locally. A target is written, and writing a global bit moves
+amplitudes.
+
+\emph{Half-shard exchanges are real, not an approximation.} In a \texttt{cx}
+with a local control, only amplitudes whose control bit is set participate.
+Those form contiguous runs of length $2^{\pi(c)}$, so they are packed with a
+strided block copy, exchanged, and scattered back --- half the bytes of a whole
+shard exchange.
+
+All pairwise traffic uses a symmetric \texttt{MPI\_Sendrecv}, which cannot
+deadlock, into a separate buffer, so no amplitude is overwritten before it is
+consumed. Buffers are reused across gates and transfers are chunked at $2^{28}$
+elements because MPI element counts are \texttt{int}-typed.
+
+\subsection{Measurement}
+
+Shot sampling draws \texttt{shots} uniform values in $[0, 1)$ from a seeded
+Mersenne Twister, sorts them once, and walks the local amplitudes accumulating
+probability mass; each rank claims only the draws that fall inside its own
+interval, whose offset comes from an \texttt{MPI\_Exscan}. Because the draw
+sequence depends only on the seed and the shot count, a circuit sampled on 8
+ranks produces \emph{identical} counts to the same circuit sampled in one
+process --- a property asserted in the test suite and relied on by the
+benchmark methodology.
+
+\subsection{Instrumentation}
+
+Every transfer the runtime issues is timed and counted inside the function that
+issues it: sends, receives, pairwise exchanges, bytes in each direction,
+collectives, and a per-opcode breakdown. What is counted is the payload handed
+to MPI; what is not counted is MPI's own protocol overhead and the internal
+traffic of collectives. Reported volumes are therefore a lower bound on wire
+traffic and an exact account of what the algorithm requested --- which is the
+quantity placement controls.
+
+\section{Communication-aware qubit placement}
+
+Because byte volume depends only on \emph{which} qubits are global and not on
+their ordering within each group, the search space is the $\binom{n}{p}$
+subsets. For 24 qubits on 8 ranks that is 2024 candidates, so an exhaustive
+search is affordable and is optimal with respect to the model; beyond a
+configurable budget the search falls back to a greedy start with pairwise local
+improvement and reports that it is not guaranteed optimal.
+
+The objective is lexicographic: bytes first, message count as a tiebreak.
+Message count distinguishes placements that move identical volume in different
+numbers of transfers, which bytes alone cannot.
+
+The model is not trusted on its own. For every circuit in the evaluation, the
+predicted byte count is compared against the profiler's measurement on the live
+runtime, including under permuted placements and in single precision.
+
+\section{Post-quantum job protocol}
+
+A job travels as one file so it can move over whatever transport a cluster
+already has. The client encapsulates to the cluster's ML-KEM public key,
+derives an AES key with HKDF bound to the protocol version and the job
+identifier, encrypts the manifest and the circuit \emph{together} with
+AES-256-GCM using the public header as associated data, and signs the header
+and ciphertext with ML-DSA.
+
+The double binding is deliberate: editing a public field breaks decryption as
+well as the signature, so a job can never run under parameters other than those
+that were signed. Everything signed or hashed is serialised canonically
+(sorted keys, no insignificant whitespace), and the parser re-serialises what it
+parsed and compares bytes, rejecting input that was not already canonical.
+
+On receipt the cluster checks, in order: structure; the signing key against a
+local allow-list; the ML-DSA signature; the addressee; replay state; then
+decapsulation, decryption and the circuit hash. Nothing inside the envelope is
+trusted before the signature verifies.
+
+Results are committed with a Merkle tree following RFC 6962 \cite{rfc6962}:
+leaves and internal nodes are domain-separated, and odd leaf counts split at the
+largest power of two rather than duplicating the last leaf, avoiding the
+ambiguity in which two distinct trees share a root. The manifest --- artefact
+digests, environment, placement, timings --- is signed with the cluster's
+ML-DSA key.
+
+We state the resulting claim precisely. A valid signature means the record was
+produced by a holder of the cluster's secret key and has not been modified. It
+does \emph{not} mean the computation was performed correctly: a compromised
+node signs a wrong answer with a valid key. Verifying provenance is not
+verifying computation.
+
+\section{Evaluation}
+
+\subsection{Setup}
+
+All measurements were taken on one Apple M2 laptop (8 logical cores, 16\,GiB),
+macOS 15.6, Apple Clang 17, Open MPI 5.0.10, with shared-memory MPI and no
+inter-node network. Each configuration runs a discarded warm-up repeat followed
+by three timed repeats; we report the minimum wall time with the median and
+spread recorded alongside. Thread policy is an explicit variable: under
+\emph{one thread per rank} the total core count grows with the rank count
+(classical scaling), while under \emph{fixed total cores} $\text{ranks} \times
+\text{threads}$ is held at the core count, which measures the cost of
+partitioning rather than the benefit of adding processors. The two are never
+combined in one table.
+
+\subsection{Correctness}
+
+The native and distributed engines are validated against the NumPy reference
+simulator per gate, per placement case, and on randomised circuits at 1, 2, 4
+and 8 ranks; the reference is in turn cross-validated against Qiskit on 100
+seeded random circuits per run. The full suite is 666 single-process tests plus
+109 distributed tests per rank count.
+
+\subsection{RQ1: communication-aware placement}
+
+\input{tables/mapping.tex}
+
+Table~\ref{tab:mapping} gives the measured effect at 8 ranks.
+The quantum Fourier transform benefits most: in the textbook decomposition
+every controlled phase targets the higher-indexed qubit, and the identity
+placement puts exactly those qubits on the global positions. Moving them local
+removes $87.2\%$ of the traffic and $24.3\%$ of the wall time. Grover's dense
+multi-controlled blocks behave similarly. The GHZ chain shows no reduction at
+all --- every qubit but one is a \texttt{cx} target exactly once, so no
+placement is better than another. We report that as a result: a heuristic that
+claimed a win on every circuit would be the suspicious one.
+
+Wall time does not track bytes proportionally. The Ising chain sheds $14.8\%$
+of its traffic with no measurable time improvement, which is what one expects
+when communication is not the bottleneck --- here, shared-memory MPI on one
+socket, where a ``transfer'' is a memory copy.
+
+The cost model predicted the byte count and the message count \emph{exactly} in
+all 42 distributed configurations measured.
+
+\input{tables/strong_scaling.tex}
+
+Table~\ref{tab:strong} gives strong scaling with one thread per rank. Efficiency
+falls from $92\%$ at 2 ranks to about $30\%$ at 8, on a machine with 4
+performance and 4 efficiency cores and no separate interconnect. Under the
+fixed-total-cores policy the same QFT reaches only $0.87\times$ --- that is, on
+constant hardware, partitioning costs more than it saves, which is the honest
+framing of what MPI buys on a single node.
+
+\subsection{RQ2: cost of the post-quantum layer}
+
+\input{tables/pqc.tex}
+
+Table~\ref{tab:pqc} gives primitive costs. End to end, packing a 20-qubit job
+bundle takes $3.1$\,ms and verifying, decrypting and opening it $5.6$\,ms, with
+$7083$ bytes of envelope overhead independent of circuit size. Against the
+heaviest job in our suite ($582$\,ms, $1792$\,MiB of MPI traffic) that is
+$1.49\%$ of runtime.
+
+The decomposition matters more than the total: only $189\,\mu$s of that is
+lattice arithmetic. The remainder is canonical JSON serialisation and base64
+encoding of the circuit. A reader who concluded ``post-quantum cryptography is
+expensive'' from the end-to-end number would be drawing the wrong lesson; the
+serialisation is what an optimisation would need to target.
+
+\subsection{RQ3: why post-quantum cryptography}
+
+\input{tables/grover.tex}
+
+Table~\ref{tab:grover} reports simulated Grover searches. Every row is a run,
+not a formula: the measured probability of finding the marked state agrees with
+the amplitude-amplification prediction to within a few tenths of a percent, and
+$256$ items are searched in 12 oracle queries against a classical expectation
+of $128.5$.
+
+That quadratic factor \cite{grover1996} is precisely why post-quantum guidance
+doubles symmetric key sizes rather than abandoning symmetric cryptography.
+Shor's exponential advantage \cite{shor1997} is a different matter, and our
+implementation illustrates it at a size that makes the point without
+overstating it: the order-finding circuit factors $15$ and $21$. Controlled
+modular multiplication is synthesised generically --- the map is a permutation
+of basis states, decomposed into transpositions, each realised by a CNOT ladder
+and one multi-controlled $X$ --- which is exponential in the register width and
+therefore stops where the simulation does.
+
+\section{Limitations}
+
+Every measurement here comes from a single laptop with shared-memory MPI. There
+is no inter-node network, so communication times are best-case; on a real
+interconnect the placement optimisation should matter \emph{more}, but that is
+a prediction, not a result. Problem sizes are 20--23 qubits. There is no GPU
+backend and no GPU was available. We make no performance comparison against
+other simulators, because a fair comparison requires care about which
+optimisations each applies.
+
+The simulator is exact and noiseless, supports twelve gates and terminal
+measurement only, and requires power-of-two rank counts. The cost model counts
+bytes and messages and does not model topology, congestion, or overlap of
+computation with communication. Placement is chosen once per circuit; dynamic
+re-mapping between circuit segments is future work.
+
+The security layer is a research prototype. A malicious cluster administrator,
+memory disclosure during execution, side channels (including the communication
+volume this project deliberately exposes), denial of service, key distribution
+and revocation are all outside the threat model.
+
+\section{Future work}
+
+Three directions follow directly from what is measured here. \emph{Dynamic
+re-mapping}: splitting a circuit into windows and re-permuting when the
+predicted saving exceeds the permutation cost, which the cost model already has
+the machinery to decide. \emph{Cluster measurements}: the same experiments on
+multiple nodes, where communication is a network rather than a memory copy and
+the byte reductions reported here should translate into larger time reductions.
+\emph{Topology awareness}: extending the cost model beyond byte counts to
+account for the interconnect a job is actually running on.
+
+\section{Conclusion}
+
+Partitioning a quantum state vector forces a choice that is usually made by
+accident. Making it deliberately --- with a cost model in bytes, a search over
+placements, and instrumentation that measures what actually crossed the network
+--- removed up to $87\%$ of MPI traffic on the circuits we measured, and the
+model predicted the byte counts exactly in every distributed configuration.
+Protecting the same jobs with NIST-standardised post-quantum cryptography cost
+about $1.5\%$ of runtime, dominated by serialisation rather than lattice
+arithmetic. Both numbers come from one laptop, and the repository says so in
+every place they appear.
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

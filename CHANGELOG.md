@@ -132,6 +132,11 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   theoretical curve.
 - Runnable examples for GHZ, QFT (with a live placement comparison under
   mpirun), Ising, Grover and Shor.
+- `docs/limitations.md`: simulation, optimiser, measurement, security and
+  algorithm-demonstration constraints in one place.
+- Technical report (`paper/main.tex`) whose result tables are generated from
+  the processed measurements by `scripts/generate_report.py`, so the paper and
+  the README cannot disagree.
 
 ### Fixed
 - `qft()` iterated the qubits in the wrong direction and produced a circuit

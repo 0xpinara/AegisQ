@@ -226,6 +226,21 @@ paper/        technical report sources
 slurm/        cluster job scripts
 ```
 
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [architecture.md](docs/architecture.md) | layer responsibilities, native core layout, OpenQASM subset |
+| [simulator-theory.md](docs/simulator-theory.md) | state-vector conventions, gate set, why measurement is terminal |
+| [distributed-algorithm.md](docs/distributed-algorithm.md) | partitioning, which gates communicate and how much |
+| [optimizer.md](docs/optimizer.md) | cost model, search strategy, what the model cannot see |
+| [pqc-protocol.md](docs/pqc-protocol.md) | envelope format, canonical bytes, result bundles |
+| [security-model.md](docs/security-model.md) | assets, adversaries, exclusions, what a signature proves |
+| [benchmark-methodology.md](docs/benchmark-methodology.md) | what is counted, thread policies, statistics |
+| [reproducibility.md](docs/reproducibility.md) | what is deterministic and what is not |
+| [limitations.md](docs/limitations.md) | every constraint of this implementation, in one place |
+| [paper/main.tex](paper/main.tex) | technical report; tables are generated from the measured data |
+
 ## Scope and honesty statement
 
 AegisQ-HPC is a research prototype, not a production security product.
@@ -237,6 +252,9 @@ AegisQ-HPC is a research prototype, not a production security product.
 - The Grover and Shor demonstrations run at educational problem sizes and make
   no claim about cryptographically relevant key or modulus sizes.
 - No quantum advantage is claimed anywhere in this repository.
+- All measurements come from one laptop with shared-memory MPI; see
+  [docs/limitations.md](docs/limitations.md) for what that does and does not
+  support.
 
 ## Licence
 
