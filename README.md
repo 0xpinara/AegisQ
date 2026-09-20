@@ -64,7 +64,7 @@ This repository is built in phases; only what is checked below is implemented.
 - [x] Phase 15 — secure job envelopes
 - [x] Phase 16 — verified job execution and replay protection
 - [x] Phase 17 — signed result provenance and Merkle verification
-- [ ] Phase 18 — security model documentation
+- [x] Phase 18 — security model documentation
 
 Benchmark numbers in this README are generated from raw measurements under
 `benchmarks/raw/` by [`scripts/generate_report.py`](scripts/generate_report.py);

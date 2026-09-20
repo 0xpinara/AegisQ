@@ -112,3 +112,8 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   dirty, and an ML-DSA-signed `.aqresult` bundle.
 - `aegisq verify-result`, which reports each check individually and states
   plainly that a valid signature is not evidence of correct computation.
+- `docs/security-model.md` and `docs/pqc-protocol.md`: assets, adversaries,
+  the order of verification checks and why it matters, the exclusions
+  (malicious administrator, memory disclosure, side channels, denial of
+  service, key distribution and revocation, metadata privacy), and the
+  precise statement of what a signature does and does not prove.
