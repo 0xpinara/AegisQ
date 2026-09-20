@@ -131,6 +131,22 @@ Not every circuit benefits: ghz shows no reduction, because its expensive qubits
 
 ![Strong scaling](benchmarks/plots/strong_scaling.png)
 
+### Cost of the post-quantum layer
+
+| operation | median | size |
+|---|---:|---:|
+| ML-DSA-65 keygen | 53.8 us | 1952 B |
+| ML-DSA-65 sign | 101.8 us | 3309 B |
+| ML-DSA-65 verify | 49.6 us | 3309 B |
+| ML-KEM-768 decapsulate | 20.0 us | 32 B |
+| ML-KEM-768 encapsulate | 17.5 us | 1088 B |
+| ML-KEM-768 keygen | 16.9 us | 1184 B |
+| pack a job bundle (end to end) | 3.1 ms | — |
+| verify, decrypt and open it | 5.6 ms | — |
+| envelope overhead, independent of circuit size | — | 7083 B |
+
+For scale: the heaviest job measured here (grover, 20 qubits, 8 ranks) runs for 582 ms and moves 1792 MiB over MPI. Securing it costs 8.7 ms end to end and 6.9 KiB on the wire — 1.49% of the runtime. Only 189 us of that is lattice arithmetic; the rest is canonical serialisation and base64, which is where an optimisation would actually pay off.
+
 ### Cost model versus reality
 
 In all **42 of 42** distributed configurations measured here, the runtime sent exactly the number of bytes the analytical cost model predicted.

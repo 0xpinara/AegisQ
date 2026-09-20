@@ -123,6 +123,10 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   Factors 15 and 21.
 - Algorithm test suite, including a matrix-level comparison of `qft()` against
   the DFT.
+- `aegisq benchmark pqc`: ML-KEM and ML-DSA primitive timings and sizes for
+  all three security levels, plus the end-to-end cost of packing and opening a
+  real job bundle, with the envelope's fixed overhead separated from base64
+  expansion of the payload.
 
 ### Fixed
 - `qft()` iterated the qubits in the wrong direction and produced a circuit

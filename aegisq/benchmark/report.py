@@ -39,7 +39,12 @@ CONFIG_KEYS = [
 def load_raw(source: Path | None = None) -> pd.DataFrame:
     """Read every raw CSV under `source` (default `benchmarks/raw`)."""
     source = source or RAW_DIR
-    paths = sorted(source.glob("*.csv")) if source.is_dir() else [source]
+    # The post-quantum files have their own schema and are loaded separately.
+    paths = (
+        [p for p in sorted(source.glob("*.csv")) if not p.name.startswith("pqc_")]
+        if source.is_dir()
+        else [source]
+    )
     if not paths:
         raise FileNotFoundError(f"no raw measurement files under {source}")
     frames = [pd.read_csv(path) for path in paths]
@@ -192,6 +197,132 @@ def mapping_table(data: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def load_pqc(source: Path | None = None) -> pd.DataFrame:
+    """Read the post-quantum measurement files, if any exist."""
+    source = source or RAW_DIR
+    paths = sorted(source.glob("pqc_*.csv")) if source.is_dir() else [source]
+    frames = [pd.read_csv(path) for path in paths if path.exists()]
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+def pqc_table(data: pd.DataFrame) -> pd.DataFrame:
+    """Primitive timings and sizes, one row per (algorithm, operation)."""
+    if data.empty:
+        return data
+    primitives = data[data["experiment"] == "pqc_primitive"]
+    if primitives.empty:
+        return primitives
+    return (
+        primitives.groupby(["algorithm", "operation"], as_index=False)
+        .agg(
+            iterations=("iterations", "max"),
+            median_us=("median_us", "min"),
+            mean_us=("mean_us", "mean"),
+            stdev_us=("stdev_us", "mean"),
+            bytes=("bytes", "max"),
+        )
+        .sort_values(["algorithm", "operation"])
+        .reset_index(drop=True)
+    )
+
+
+def pqc_envelope_table(data: pd.DataFrame) -> pd.DataFrame:
+    """End-to-end envelope timings and the size decomposition."""
+    if data.empty:
+        return data
+    envelope = data[data["experiment"] == "pqc_envelope"]
+    if envelope.empty:
+        return envelope
+    return (
+        envelope.groupby(["operation"], as_index=False)
+        .agg(
+            median_us=("median_us", "min"),
+            mean_us=("mean_us", "mean"),
+            bytes=("bytes", "max"),
+            detail=("detail", "first"),
+        )
+        .reset_index(drop=True)
+    )
+
+
+def plot_pqc(table: pd.DataFrame, path: Path, host: str = "") -> Path | None:
+    """Primitive cost by algorithm, with the artefact sizes beside it."""
+    if table.empty:
+        return None
+    import numpy as np
+
+    plt = _figure()
+    fig, (time_ax, size_ax) = plt.subplots(1, 2, figsize=(11.5, 4.4), facecolor=SURFACE)
+
+    algorithms = sorted(table["algorithm"].unique())
+    operations = sorted(table["operation"].unique())
+    positions = np.arange(len(algorithms), dtype=float)
+    width = 0.8 / max(1, len(operations))
+
+    for index, operation in enumerate(operations):
+        subset = table[table["operation"] == operation].set_index("algorithm")
+        values = [float(subset["median_us"].get(name, 0.0)) for name in algorithms]
+        offset = (index - (len(operations) - 1) / 2) * width
+        time_ax.bar(
+            positions + offset,
+            values,
+            width * 0.9,
+            color=SERIES_COLORS[index % len(SERIES_COLORS)],
+            label=operation,
+            edgecolor=SURFACE,
+            linewidth=1.0,
+            zorder=2,
+        )
+
+    time_ax.set_xticks(positions)
+    time_ax.set_xticklabels(algorithms, fontsize=8, rotation=30, ha="right", color=INK_MUTED)
+    time_ax.set_facecolor(SURFACE)
+    _style_axes(time_ax, "Primitive cost (median of repeats)", "", "microseconds")
+    time_ax.grid(axis="x", visible=False)
+    time_ax.legend(fontsize=8, frameon=False, labelcolor=INK_MUTED)
+
+    # Sizes: public key, ciphertext or signature, by algorithm.
+    size_rows = table[table["operation"].isin(["keygen", "encapsulate", "sign"])]
+    size_ax.set_facecolor(SURFACE)
+    labels = []
+    values = []
+    for name in algorithms:
+        subset = size_rows[size_rows["algorithm"] == name]
+        for row in subset.itertuples():
+            labels.append(f"{name}\n{row.operation}")
+            values.append(row.bytes)
+    size_positions = np.arange(len(labels), dtype=float)
+    size_ax.bar(
+        size_positions,
+        values,
+        0.6,
+        color=SERIES_COLORS[2],
+        edgecolor=SURFACE,
+        linewidth=1.0,
+        zorder=2,
+    )
+    for position, value in zip(size_positions, values, strict=False):
+        size_ax.annotate(
+            f"{int(value)}",
+            (position, value),
+            textcoords="offset points",
+            xytext=(0, 3),
+            ha="center",
+            fontsize=7,
+            color=INK,
+        )
+    size_ax.set_xticks(size_positions)
+    size_ax.set_xticklabels(labels, fontsize=7, rotation=45, ha="right", color=INK_MUTED)
+    _style_axes(size_ax, "Key, ciphertext and signature sizes", "", "bytes")
+    size_ax.grid(axis="x", visible=False)
+
+    fig.suptitle(f"Post-quantum primitives{f' — {host}' if host else ''}", fontsize=12, color=INK)
+    fig.tight_layout()
+    return _save(fig, path)
 
 
 def prediction_accuracy(data: pd.DataFrame) -> pd.DataFrame:
@@ -522,6 +653,20 @@ def write_reports(
         accuracy.to_csv(processed / "prediction_accuracy.csv", index=False)
         written["prediction_accuracy"] = processed / "prediction_accuracy.csv"
 
+    pqc = load_pqc(raw)
+    if not pqc.empty:
+        primitives = pqc_table(pqc)
+        if not primitives.empty:
+            primitives.to_csv(processed / "pqc_primitives.csv", index=False)
+            written["pqc_primitives"] = processed / "pqc_primitives.csv"
+            figure = plot_pqc(primitives, plots / "pqc_primitives.png", host)
+            if figure:
+                written["pqc_primitives_plot"] = figure
+        envelope = pqc_envelope_table(pqc)
+        if not envelope.empty:
+            envelope.to_csv(processed / "pqc_envelope.csv", index=False)
+            written["pqc_envelope"] = processed / "pqc_envelope.csv"
+
     return written
 
 
@@ -589,6 +734,30 @@ def markdown_summary(raw: Path | None = None) -> str:
                 f"{row.amplitudes_per_rank:,} | {row.wall_best_s:.3f} | "
                 f"{row.efficiency * 100:.0f}% |"
             )
+        lines.append("")
+
+    pqc = load_pqc(raw)
+    primitives = pqc_table(pqc)
+    if not primitives.empty:
+        lines.append("## Post-quantum primitives (measured)")
+        lines.append("")
+        lines.append("| algorithm | operation | median (us) | bytes |")
+        lines.append("|---|---|---:|---:|")
+        for row in primitives.itertuples():
+            lines.append(
+                f"| {row.algorithm} | {row.operation} | {row.median_us:.1f} | {int(row.bytes)} |"
+            )
+        lines.append("")
+
+    envelope = pqc_envelope_table(pqc)
+    if not envelope.empty:
+        lines.append("## Secure job envelope (measured)")
+        lines.append("")
+        lines.append("| step | median (us) | bytes |")
+        lines.append("|---|---:|---:|")
+        for row in envelope.itertuples():
+            timing = f"{row.median_us:.0f}" if row.median_us > 0 else "-"
+            lines.append(f"| {row.operation} | {timing} | {int(row.bytes)} |")
         lines.append("")
 
     accuracy = prediction_accuracy(data)

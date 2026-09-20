@@ -53,6 +53,40 @@
 | ising | one-thread-per-rank | 4 | 22 | 1,048,576 | 0.715 | 58% |
 | ising | one-thread-per-rank | 8 | 23 | 1,048,576 | 1.647 | 25% |
 
+## Post-quantum primitives (measured)
+
+| algorithm | operation | median (us) | bytes |
+|---|---|---:|---:|
+| ML-DSA-44 | keygen | 32.8 | 1312 |
+| ML-DSA-44 | sign | 61.5 | 2420 |
+| ML-DSA-44 | verify | 31.2 | 2420 |
+| ML-DSA-65 | keygen | 53.8 | 1952 |
+| ML-DSA-65 | sign | 101.8 | 3309 |
+| ML-DSA-65 | verify | 49.6 | 3309 |
+| ML-DSA-87 | keygen | 91.8 | 2592 |
+| ML-DSA-87 | sign | 138.2 | 4627 |
+| ML-DSA-87 | verify | 83.4 | 4627 |
+| ML-KEM-1024 | decapsulate | 27.7 | 32 |
+| ML-KEM-1024 | encapsulate | 24.1 | 1568 |
+| ML-KEM-1024 | keygen | 23.2 | 1568 |
+| ML-KEM-512 | decapsulate | 14.5 | 32 |
+| ML-KEM-512 | encapsulate | 12.9 | 768 |
+| ML-KEM-512 | keygen | 12.1 | 800 |
+| ML-KEM-768 | decapsulate | 20.0 | 32 |
+| ML-KEM-768 | encapsulate | 17.5 | 1088 |
+| ML-KEM-768 | keygen | 16.9 | 1184 |
+
+## Secure job envelope (measured)
+
+| step | median (us) | bytes |
+|---|---:|---:|
+| bundle_size | - | 78059 |
+| envelope_fixed_overhead | - | 7083 |
+| pack_job | 3089 | 78059 |
+| payload_base64 | - | 70976 |
+| payload_plaintext | - | 53232 |
+| verify_and_open | 5571 | 78059 |
+
 ## Cost-model accuracy
 
 - 42 of 42 distributed configurations sent exactly the number of bytes the cost model predicted.

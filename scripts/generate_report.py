@@ -96,6 +96,56 @@ def build_block() -> str:
             lines.append("![Strong scaling](benchmarks/plots/strong_scaling.png)")
             lines.append("")
 
+    pqc = report_module.load_pqc()
+    primitives = report_module.pqc_table(pqc)
+    envelope = report_module.pqc_envelope_table(pqc)
+    if not primitives.empty and not envelope.empty:
+        chosen = primitives[primitives["algorithm"].isin(["ML-KEM-768", "ML-DSA-65"])]
+        by_step = envelope.set_index("operation")
+
+        lines.append("### Cost of the post-quantum layer")
+        lines.append("")
+        lines.append("| operation | median | size |")
+        lines.append("|---|---:|---:|")
+        for row in chosen.itertuples():
+            lines.append(
+                f"| {row.algorithm} {row.operation} | {row.median_us:.1f} us | {int(row.bytes)} B |"
+            )
+        pack = float(by_step["median_us"].get("pack_job", 0.0))
+        verify = float(by_step["median_us"].get("verify_and_open", 0.0))
+        overhead = int(by_step["bytes"].get("envelope_fixed_overhead", 0))
+        lines.append(f"| pack a job bundle (end to end) | {pack / 1000:.1f} ms | — |")
+        lines.append(f"| verify, decrypt and open it | {verify / 1000:.1f} ms | — |")
+        lines.append(f"| envelope overhead, independent of circuit size | — | {overhead} B |")
+        lines.append("")
+
+        if not mapping.empty:
+            reference = mapping.sort_values("baseline_wall_s", ascending=False).iloc[0]
+            job_ms = float(reference["baseline_wall_s"]) * 1000
+            job_mib = float(reference["baseline_bytes"]) / 2**20
+            indexed = chosen.set_index(["algorithm", "operation"])["median_us"]
+            primitive_us = float(
+                sum(
+                    indexed.get(key, 0.0)
+                    for key in (
+                        ("ML-KEM-768", "encapsulate"),
+                        ("ML-KEM-768", "decapsulate"),
+                        ("ML-DSA-65", "sign"),
+                        ("ML-DSA-65", "verify"),
+                    )
+                )
+            )
+            lines.append(
+                f"For scale: the heaviest job measured here ({reference['circuit_family']}, "
+                f"{int(reference['qubits'])} qubits, {int(reference['ranks'])} ranks) runs for "
+                f"{job_ms:.0f} ms and moves {job_mib:.0f} MiB over MPI. Securing it costs "
+                f"{(pack + verify) / 1000:.1f} ms end to end and {overhead / 1024:.1f} KiB on "
+                f"the wire — {(pack + verify) / 10 / job_ms:.2f}% of the runtime. Only "
+                f"{primitive_us:.0f} us of that is lattice arithmetic; the rest is canonical "
+                "serialisation and base64, which is where an optimisation would actually pay off."
+            )
+            lines.append("")
+
     if not accuracy.empty:
         exact = int((accuracy["bytes_error"] == 0).sum())
         lines.append(

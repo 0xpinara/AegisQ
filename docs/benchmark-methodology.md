@@ -117,3 +117,25 @@ vector's worth of bytes summed over ranks (`2^n · 16` for fp64), and a `CX`
 with a local control and a global target moves exactly half of that. These are
 assertions, not documentation: an optimisation that changes the traffic
 pattern has to change the expectations too.
+
+## Post-quantum measurements
+
+`aegisq benchmark pqc` measures two different things, and the distinction
+matters for how the results are read:
+
+- **Primitive cost** — `keygen`, `encapsulate`, `decapsulate`, `sign` and
+  `verify` for all three ML-KEM and ML-DSA parameter sets, timed over many
+  iterations with the **median** reported. Sizes are exact, not measured.
+- **End-to-end cost** — the wall time to pack a real job bundle and to verify,
+  decrypt and open it, and the bytes the envelope adds.
+
+The end-to-end figure is much larger than the sum of the primitives, and that
+gap is the interesting part: most of it is canonical JSON serialisation and
+base64 encoding of the circuit, not lattice arithmetic. The size accounting
+separates the three contributions — plaintext payload, base64 expansion, and
+the fixed cryptographic overhead (KEM ciphertext, signature, header, AEAD tag)
+— so a reader can see which one an optimisation would need to target.
+
+Primitive timings depend on the liboqs build (compiler flags, AVX2/NEON
+availability), so the liboqs version is recorded in every row alongside the
+CPU.

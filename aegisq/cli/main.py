@@ -273,6 +273,22 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
     from aegisq.benchmark import report as report_module
     from aegisq.benchmark.runner import default_raw_path
 
+    if args.benchmark_command == "pqc":
+        from aegisq.benchmark.pqc import run_suite
+
+        output = args.output or default_raw_path("pqc")
+        print(f"Writing raw post-quantum measurements to {output}")
+        run_suite(
+            output,
+            iterations=args.iterations,
+            envelope_iterations=args.envelope_iterations,
+            envelope_qubits=args.envelope_qubits,
+        )
+        print()
+        print("Raw data written. Regenerate tables and plots with:")
+        print("  aegisq benchmark report")
+        return 0
+
     if args.benchmark_command == "report":
         written = report_module.write_reports(args.raw)
         if not written:
@@ -837,6 +853,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     mapping_cmd.add_argument("--output", type=Path)
     mapping_cmd.set_defaults(func=_cmd_benchmark)
+
+    pqc_cmd = benchmark_sub.add_parser(
+        "pqc",
+        help="measure ML-KEM / ML-DSA primitives and the end-to-end envelope",
+    )
+    pqc_cmd.add_argument("--iterations", type=int, default=1000)
+    pqc_cmd.add_argument("--envelope-iterations", type=int, default=50)
+    pqc_cmd.add_argument("--envelope-qubits", type=int, default=20)
+    pqc_cmd.add_argument("--output", type=Path)
+    pqc_cmd.set_defaults(func=_cmd_benchmark)
 
     report_cmd = benchmark_sub.add_parser(
         "report", help="regenerate processed tables and plots from raw measurements"
