@@ -60,3 +60,51 @@ authoritative version. `CircuitCostProfile` pre-aggregates a circuit so that
 thousands of candidate placements can be scored without re-walking the gate
 list. A unit test asserts the two agree on randomised circuits, so the fast
 path cannot drift away from the rules.
+
+## Search
+
+`aegisq.compiler.static_mapper.StaticCommunicationMapper` selects the set of
+`p` global qubits.
+
+| Space | Strategy |
+|---|---|
+| `C(n, p) <= candidate_budget` (200k by default) | exhaustive — optimal *with respect to the cost model* |
+| larger | greedy start, then pairwise swap local search — labelled as not guaranteed optimal |
+
+The greedy start orders qubits by the cost of placing each one globally on its
+own, takes the cheapest `p`, and then repeatedly swaps one global qubit for a
+local one while that improves the objective.
+
+The objective is lexicographic: **bytes first, message count as a tiebreak**.
+Bytes are what placement controls; the message count separates two placements
+that move identical volume in different numbers of transfers.
+
+### The result is applied
+
+`MappingResult.mapping` is a logical-to-physical permutation, and it is the
+same object the distributed runtime consumes. `tests/mpi/test_optimized_mapping.py`
+runs each circuit twice on the live runtime — once with the default placement,
+once with the optimised one — and asserts that
+
+1. both produce the same state as the single-process reference, and
+2. the measured byte counts equal the predicted ones for both placements, so
+   the reported reduction is a reduction in bytes that actually crossed the
+   network.
+
+## CLI
+
+```
+aegisq optimize random --qubits 20 --ranks 8 --option seed=3
+aegisq optimize circuit.json --ranks 4 --json
+```
+
+Output states plainly that the figures are predictions; measured numbers come
+from a benchmark run.
+
+## What the model cannot see
+
+The cost model counts bytes and messages. It does not model network topology,
+congestion, overlap between computation and communication, NUMA effects or MPI
+implementation differences. A predicted reduction in bytes is therefore not a
+promise of a proportional reduction in wall-clock time — which is precisely
+why the benchmark suite measures both.

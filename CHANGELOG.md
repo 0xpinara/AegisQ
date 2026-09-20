@@ -57,3 +57,12 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
 - Per-opcode metrics are now reduced across ranks as well, guarded by a key-set
   agreement check so a mismatch degrades to rank-local numbers instead of
   deadlocking.
+- Benchmark circuit families: GHZ, QFT (controlled phases decomposed to
+  rz/cx), Trotterised transverse-field Ising, Grover with a Toffoli-ladder
+  multi-controlled phase flip, and seeded random circuits.
+- `StaticCommunicationMapper`: exhaustive search over C(n, p) placements when
+  affordable, greedy plus pairwise local search beyond a candidate budget,
+  with the result labelled accordingly. The chosen mapping is handed to the
+  runtime, not merely reported.
+- `aegisq optimize` CLI with a human-readable before/after comparison and a
+  `--json` mode.
