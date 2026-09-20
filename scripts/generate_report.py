@@ -62,11 +62,19 @@ def build_block() -> str:
                 f"**{row.bytes_reduction * 100:.1f}%** | {row.wall_change * 100:+.1f}% |"
             )
         lines.append("")
-        lines.append(
-            "Two of the five families show no reduction at all. That is a result, not a gap: "
-            "a GHZ chain and this QFT decomposition already place their expensive qubits "
-            "well under the default mapping, so there is nothing for the optimiser to win."
-        )
+        unchanged = [
+            row.circuit_family for row in interesting.itertuples() if row.bytes_reduction < 0.01
+        ]
+        names = sorted(set(unchanged))
+        if names:
+            subject = names[0] if len(names) == 1 else ", ".join(names)
+            verb = "shows" if len(names) == 1 else "show"
+            lines.append(
+                f"Not every circuit benefits: {subject} {verb} no reduction, because its "
+                "expensive qubits already sit well under the default placement. That is a "
+                "result, not a gap — a heuristic that claimed a win on every circuit would "
+                "be the suspicious one."
+            )
         lines.append("")
         lines.append("![Communication-aware placement](benchmarks/plots/mapping_comparison.png)")
         lines.append("")

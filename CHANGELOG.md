@@ -117,3 +117,15 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   (malicious administrator, memory disclosure, side channels, denial of
   service, key distribution and revocation, metadata privacy), and the
   precise statement of what a signature does and does not prove.
+- Shor's algorithm at educational sizes: controlled modular multiplication
+  synthesised as a basis-state permutation decomposed into transpositions,
+  order finding by phase estimation, and the classical post-processing.
+  Factors 15 and 21.
+- Algorithm test suite, including a matrix-level comparison of `qft()` against
+  the DFT.
+
+### Fixed
+- `qft()` iterated the qubits in the wrong direction and produced a circuit
+  that was unitary, invertible and *not* the Fourier transform. Phase
+  estimation on it was smeared instead of exact. All benchmark measurements
+  involving the QFT were re-run after the fix.

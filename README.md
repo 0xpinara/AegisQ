@@ -100,19 +100,19 @@ aegisq doctor   # report MPI / OpenMP / liboqs / Qiskit availability
 
 <!-- BENCHMARK-RESULTS:START -->
 
-All figures below were measured on **Apple M2 (8 logical cores)**, macOS-15.6.1-arm64-arm-64bit, Open MPI v5.0.10, AegisQ 0.1.0 at commit `4bf173533b4a`. They describe that host and are not a claim about cluster hardware.
+All figures below were measured on **Apple M2 (8 logical cores)**, macOS-15.6.1-arm64-arm-64bit, Open MPI v5.0.10, AegisQ 0.1.0 at commit `74a1a238513b`. They describe that host and are not a claim about cluster hardware.
 
 ### Communication-aware placement, 8 ranks, 20 qubits
 
 | circuit | measured MPI bytes, default | measured MPI bytes, optimized | reduction | wall time change |
 |---|---:|---:|---:|---:|
-| grover | 1,879,048,192 | 520,093,696 | **72.3%** | -16.9% |
-| random | 411,041,792 | 251,658,240 | **38.8%** | -5.9% |
-| ising | 452,984,832 | 385,875,968 | **14.8%** | -6.9% |
-| ghz | 25,165,824 | 25,165,824 | **0.0%** | +8.7% |
-| qft | 125,829,120 | 125,829,120 | **0.0%** | -1.1% |
+| qft | 981,467,136 | 125,829,120 | **87.2%** | -24.3% |
+| grover | 1,879,048,192 | 520,093,696 | **72.3%** | -20.7% |
+| random | 411,041,792 | 251,658,240 | **38.8%** | -20.0% |
+| ising | 452,984,832 | 385,875,968 | **14.8%** | +1.1% |
+| ghz | 25,165,824 | 25,165,824 | **0.0%** | -7.9% |
 
-Two of the five families show no reduction at all. That is a result, not a gap: a GHZ chain and this QFT decomposition already place their expensive qubits well under the default mapping, so there is nothing for the optimiser to win.
+Not every circuit benefits: ghz shows no reduction, because its expensive qubits already sit well under the default placement. That is a result, not a gap — a heuristic that claimed a win on every circuit would be the suspicious one.
 
 ![Communication-aware placement](benchmarks/plots/mapping_comparison.png)
 
@@ -120,14 +120,14 @@ Two of the five families show no reduction at all. That is a result, not a gap: 
 
 | circuit | qubits | ranks | wall time (s) | speedup | efficiency |
 |---|---:|---:|---:|---:|---:|
-| ising | 22 | 1 | 1.895 | 1.00x | 100% |
-| ising | 22 | 2 | 1.006 | 1.88x | 94% |
-| ising | 22 | 4 | 0.715 | 2.65x | 66% |
-| ising | 22 | 8 | 0.725 | 2.61x | 33% |
-| qft | 22 | 1 | 5.313 | 1.00x | 100% |
-| qft | 22 | 2 | 2.976 | 1.79x | 89% |
-| qft | 22 | 4 | 2.017 | 2.63x | 66% |
-| qft | 22 | 8 | 1.829 | 2.90x | 36% |
+| ising | 22 | 1 | 1.896 | 1.00x | 100% |
+| ising | 22 | 2 | 1.031 | 1.84x | 92% |
+| ising | 22 | 4 | 0.742 | 2.56x | 64% |
+| ising | 22 | 8 | 0.793 | 2.39x | 30% |
+| qft | 22 | 1 | 5.454 | 1.00x | 100% |
+| qft | 22 | 2 | 2.959 | 1.84x | 92% |
+| qft | 22 | 4 | 2.237 | 2.44x | 61% |
+| qft | 22 | 8 | 2.319 | 2.35x | 29% |
 
 ![Strong scaling](benchmarks/plots/strong_scaling.png)
 

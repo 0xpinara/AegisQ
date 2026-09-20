@@ -39,10 +39,15 @@ def qft(num_qubits: int, swaps: bool = True, name: str = "qft") -> Circuit:
     in a distributed run.
     """
     circuit = Circuit(num_qubits, name=f"{name}{num_qubits}")
-    for j in range(num_qubits):
+    # Qubit 0 is the least significant bit, so the transform starts at the
+    # most significant qubit and its controls are the *less* significant ones.
+    # Running the loop the other way round produces a perfectly reasonable
+    # circuit that is not the Fourier transform; `tests/unit/test_algorithms.py`
+    # pins this by comparing the whole matrix against the DFT.
+    for j in reversed(range(num_qubits)):
         circuit.h(j)
-        for k in range(j + 1, num_qubits):
-            controlled_phase(circuit, k, j, math.pi / (2 ** (k - j)))
+        for k in range(j):
+            controlled_phase(circuit, k, j, math.pi / (2 ** (j - k)))
     if swaps:
         for j in range(num_qubits // 2):
             circuit.swap(j, num_qubits - 1 - j)

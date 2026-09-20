@@ -131,16 +131,26 @@ def test_every_benchmark_family_can_be_optimized(family):
     assert "Predicted reduction" in result.report()
 
 
-def test_qft_default_placement_is_already_good():
-    """An honest negative result: the QFT's structure favours high qubits.
+def test_qft_default_placement_is_close_to_the_worst_case():
+    """The QFT is where placement matters most.
 
-    In this decomposition the controlled phases use the *lower*-indexed qubit
-    as the CX target, so low qubits are expensive to place globally and the
-    default placement is already near-optimal.
+    In the textbook decomposition every controlled phase targets the
+    *higher*-indexed qubit, and the default (identity) placement puts exactly
+    those qubits on the global positions — so almost every controlled phase
+    becomes a network operation. Moving them to local positions removes most
+    of the traffic.
     """
     circuit = qft(14)
     result = optimize_placement(circuit, world_size=4)
-    assert result.reduction < 0.2
+    assert result.reduction > 0.5
+    # The optimiser should choose low-index qubits, which are rarely targets.
+    assert max(result.global_qubits) < 14 - 2
+
+
+def test_ghz_offers_the_optimizer_nothing():
+    """An honest negative: every qubit but one is a CX target exactly once."""
+    result = optimize_placement(ghz(16), world_size=4)
+    assert result.reduction == 0.0
 
 
 def test_ising_placement_reduces_predicted_traffic():
