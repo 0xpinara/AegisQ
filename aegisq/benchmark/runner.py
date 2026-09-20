@@ -91,6 +91,7 @@ class BenchmarkConfig:
     precision: str = "fp64"
     mapping_strategy: str = "default"
     fusion: bool = False
+    window_size: int = 128
     shots: int = 0
     seed: int = 42
     repeats: int = 3
@@ -185,15 +186,32 @@ def measure(config: BenchmarkConfig) -> list[dict[str, Any]]:
     backend = preferred_backend()
 
     mapping = None
+    windowed_plan = None
     if config.mapping_strategy == "optimized" and is_distributed():
         placement = optimize_placement(circuit, ranks, config.precision)
         mapping = list(placement.mapping)
         global_qubits = list(placement.global_qubits)
+    elif config.mapping_strategy == "windowed" and is_distributed():
+        from aegisq.compiler.dynamic_mapper import apply_plan, plan_dynamic_placement
+
+        planning_model = CommunicationCostModel(circuit.num_qubits, ranks, config.precision)
+        windowed_plan = plan_dynamic_placement(
+            circuit, planning_model, window_size=config.window_size
+        )
+        # Slots are baked into the rewritten operands, so the runtime keeps
+        # the identity mapping and the plan's own SWAPs do the moving.
+        circuit = apply_plan(circuit, windowed_plan, planning_model)
+        global_qubits = list(windowed_plan.static_assignment)
     else:
         global_qubits = list(default_global_qubits(circuit.num_qubits, ranks))
 
     model = CommunicationCostModel(circuit.num_qubits, ranks, config.precision)
-    prediction = model.estimate(circuit, global_qubits)
+    if windowed_plan is not None:
+        # The rewritten circuit runs under the default placement; predicting
+        # it that way is what the plan itself claims.
+        prediction = model.estimate(circuit, default_global_qubits(circuit.num_qubits, ranks))
+    else:
+        prediction = model.estimate(circuit, global_qubits)
 
     options: dict[str, Any] = {}
     if mapping is not None:
@@ -286,7 +304,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--qubits", type=int, required=True)
     parser.add_argument("--experiment", default="adhoc")
     parser.add_argument("--precision", choices=("fp64", "fp32"), default="fp64")
-    parser.add_argument("--mapping", choices=("default", "optimized"), default="default")
+    parser.add_argument(
+        "--mapping", choices=("default", "optimized", "windowed"), default="default"
+    )
+    parser.add_argument(
+        "--window-size", type=int, default=128, help="gates per window for --mapping windowed"
+    )
     parser.add_argument(
         "--fuse", action="store_true", help="fuse single-qubit runs before executing"
     )
@@ -337,6 +360,7 @@ def main(argv: list[str] | None = None) -> int:
         precision=args.precision,
         mapping_strategy=args.mapping,
         fusion=args.fuse,
+        window_size=args.window_size,
         shots=args.shots,
         seed=args.seed,
         repeats=args.repeats,

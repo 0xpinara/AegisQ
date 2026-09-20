@@ -129,7 +129,8 @@ AegisQ-HPC is four cooperating layers.
 \item A \textbf{native core} in C++20: local kernels shared by single-process
   and distributed execution, an MPI runtime, and a communication profiler.
 \item A \textbf{compiler} comprising an analytical communication cost model, a
-  placement search and a gate-fusion pass.
+  static placement search, a gate-fusion pass and a windowed placement
+  planner.
 \item A \textbf{security layer} providing ML-KEM/ML-DSA job envelopes and
   signed, Merkle-committed result provenance.
 \end{enumerate}
@@ -346,6 +347,36 @@ placement alone $38.8\%$, while the combination removes $53.1\%$: fusing
 changes the cost landscape, so the placement search that follows finds a
 different and better assignment. For the QFT, whose single-qubit runs are
 already short, fusion contributes nothing and placement does all the work.
+
+\subsection{A third lever: windowed placement}
+
+A single assignment is the right answer only for a circuit whose communication
+structure is uniform. We split a circuit into windows, find the best
+assignment for each, and switch when the saving on a window exceeds the cost
+of the switch --- half a shard per rank for each qubit that changes group.
+
+A plan is executed as a circuit rewrite rather than a runtime feature: gates
+are re-expressed on slots, a change of assignment becomes SWAP gates between
+slots, and the resulting traffic is measured by the same instrumentation as
+every other gate. The final permutation is undone by relabelling results,
+which is free classical bookkeeping, exactly as the runtime mapping is for a
+static assignment.
+
+Two details determine whether the comparison means anything. First, the
+baseline must be the best \emph{static} assignment, not the default one;
+measuring against the default would credit windowing with the gain ordinary
+placement already delivers. Second, the plan must not be charged for
+restoration that the static baseline gets for free. Both were wrong in our
+first implementation, and both showed up as windowing apparently losing to
+static placement on circuits where it plainly should not.
+
+Measured at 8 ranks, windowed placement beats the best single assignment on
+four of five families: $95.7\%$ of baseline traffic removed for the QFT
+against $87.2\%$ static, and $87.1\%$ against $72.3\%$ for Grover. On GHZ,
+which has no phase structure, the planner declines to switch and the two
+coincide. For random circuits the best result comes from placement and fusion
+together ($53.1\%$) rather than from windowing ($42.9\%$), so no single lever
+dominates.
 
 \input{tables/strong_scaling.tex}
 

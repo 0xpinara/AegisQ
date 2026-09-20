@@ -80,32 +80,82 @@ def build_block() -> str:
         lines.append("")
 
     levers = report_module.lever_table(data)
-    if not levers.empty and not levers["both_bytes"].isna().all():
+    lever_columns = [
+        column
+        for column in (
+            "fusion_only_reduction",
+            "placement_only_reduction",
+            "windowed_only_reduction",
+            "both_reduction",
+        )
+        if column in levers.columns and not levers[column].isna().all()
+    ]
+    if not levers.empty and lever_columns:
         import pandas as pd
 
         interesting = levers[levers["ranks"] == levers["ranks"].max()]
-        lines.append("### Two levers on the same problem")
+        lines.append("### Three ways to spend less on the network")
         lines.append("")
         lines.append(
-            "Qubit placement decides *which* gates communicate; gate fusion decides "
-            "*how many times*. Measured separately and together, at "
+            "Placement decides *which* gates communicate. Fusion decides *how many times*. "
+            "Windowed placement changes the assignment part-way through the circuit, when "
+            "the phase structure makes the switch worth paying for. Measured at "
             f"{int(interesting['ranks'].iloc[0])} ranks:"
         )
         lines.append("")
-        lines.append("| circuit | baseline MPI bytes | fusion only | placement only | both |")
-        lines.append("|---|---:|---:|---:|---:|")
+        lines.append(
+            "| circuit | baseline MPI bytes | fusion | static placement | "
+            "windowed placement | placement + fusion |"
+        )
+        lines.append("|---|---:|---:|---:|---:|---:|")
 
         def percent(value):
-            return "—" if value is None or pd.isna(value) else f"{value * 100:.1f}%"
+            return "\u2014" if value is None or pd.isna(value) else f"{value * 100:.1f}%"
 
-        for row in interesting.sort_values("both_reduction", ascending=False).itertuples():
+        def best_of(row):
+            values = [
+                getattr(row, column, None)
+                for column in (
+                    "fusion_only_reduction",
+                    "placement_only_reduction",
+                    "windowed_only_reduction",
+                    "both_reduction",
+                )
+            ]
+            values = [v for v in values if v is not None and not pd.isna(v)]
+            return max(values) if values else 0.0
+
+        for row in sorted(interesting.itertuples(), key=best_of, reverse=True):
+            best = percent(best_of(row))
+            cells = [
+                percent(getattr(row, column, None))
+                for column in (
+                    "fusion_only_reduction",
+                    "placement_only_reduction",
+                    "windowed_only_reduction",
+                    "both_reduction",
+                )
+            ]
+            cells = [f"**{c}**" if c == best and c != "0.0%" else c for c in cells]
             lines.append(
-                f"| {row.circuit_family} | {row.baseline_bytes:,} | "
-                f"{percent(row.fusion_only_reduction)} | "
-                f"{percent(row.placement_only_reduction)} | "
-                f"**{percent(row.both_reduction)}** |"
+                f"| {row.circuit_family} | {row.baseline_bytes:,} | " + " | ".join(cells) + " |"
             )
         lines.append("")
+
+        if "windowed_only_reduction" in interesting.columns:
+            wins = interesting.dropna(subset=["windowed_only_reduction"])
+            wins = wins[wins["windowed_only_reduction"] > wins["placement_only_reduction"] + 0.01]
+            if not wins.empty:
+                example = wins.sort_values("windowed_only_reduction", ascending=False).iloc[0]
+                lines.append(
+                    f"Windowed placement beats the best single assignment on {len(wins)} of "
+                    f"{len(interesting)} circuits \u2014 for `{example['circuit_family']}`, "
+                    f"{example['windowed_only_reduction'] * 100:.1f}% against "
+                    f"{example['placement_only_reduction'] * 100:.1f}% \u2014 by paying a few "
+                    "shard exchanges to re-assign qubits between phases. Where a circuit has "
+                    "no phase structure the planner declines to switch and the two coincide."
+                )
+                lines.append("")
 
         combined = interesting.dropna(subset=["both_reduction"])
         non_additive = combined[
@@ -117,11 +167,11 @@ def build_block() -> str:
         if not non_additive.empty:
             example = non_additive.iloc[0]
             lines.append(
-                "The levers are not independent. For "
-                f"`{example['circuit_family']}` the combination removes "
-                f"{example['both_reduction'] * 100:.1f}% where the two separately remove "
+                "Placement and fusion are not independent either: for "
+                f"`{example['circuit_family']}` the pair removes "
+                f"{example['both_reduction'] * 100:.1f}% where separately they remove "
                 f"{example['fusion_only_reduction'] * 100:.1f}% and "
-                f"{example['placement_only_reduction'] * 100:.1f}% — fusing first changes "
+                f"{example['placement_only_reduction'] * 100:.1f}%. Fusing first changes "
                 "which placement is best, so the search finds a better one."
             )
             lines.append("")

@@ -138,6 +138,62 @@ placement search that runs afterwards finds a different and better assignment.
 The measured 2x2 is in the [README](../README.md#measured-results) and in
 `benchmarks/processed/lever_comparison.csv`.
 
+## A third lever: windowed placement
+
+Static placement picks one assignment for the whole circuit. That is right for
+a circuit whose communication structure is uniform and wrong for one that is
+not — a circuit that works intensively on one group of qubits and then moves
+to another wants a different assignment in each phase.
+
+`aegisq.compiler.dynamic_mapper` splits the circuit into windows, finds the
+best assignment for each, and decides at every boundary:
+
+```
+cost(window under the current assignment)
+    versus
+cost(window under a better one) + cost of getting there
+```
+
+Re-assigning is not free. Moving a qubit between a local and a global slot
+means moving amplitudes, at half a shard per rank. The plan switches only when
+the saving exceeds that.
+
+### Executed as a circuit rewrite
+
+A plan is applied by rewriting the circuit, not by adding a runtime feature:
+gates are re-expressed on slots, a change of assignment becomes SWAP gates
+between slots, and the resulting traffic is measured by the same profiler as
+everything else. The runtime keeps one fixed mapping and needs no knowledge of
+the plan.
+
+The final permutation is left in place and the *results* are relabelled, which
+is free classical bookkeeping — exactly what the runtime mapping does for a
+static assignment. Making the circuit restore logical order instead is
+available (`restore_order=True`) and costs real exchanges; charging the
+windowed plan for something the static baseline gets for free would have made
+the comparison meaningless. That asymmetry was in the first version of this
+module and showed up as windowing "losing" to static placement on circuits
+where it plainly should not.
+
+### The planner and the rewriter must agree
+
+The search uses a transition estimate that depends only on the two
+assignments, because a path-dependent cost cannot be optimised over. The cost
+finally *reported* is recomputed from the exact swap list the rewriter will
+emit. An earlier version reported the estimate, which missed the
+global-to-global swaps a restoration needs and under-predicted its own traffic
+— caught by comparing prediction against measurement on the live runtime,
+which is the check every part of this project is held to.
+
+### Measured
+
+Windowed placement beats the best single assignment on four of the five
+benchmark families; for the QFT it removes 95.7% of baseline traffic against
+87.2% for the best static assignment. On GHZ, which has no phase structure,
+the planner declines to switch and the two coincide. The numbers are in the
+[README](../README.md#measured-results) and
+`benchmarks/processed/lever_comparison.csv`.
+
 ## What the model cannot see
 
 The cost model counts bytes and messages. It does not model network topology,

@@ -498,6 +498,7 @@ def lever_table(data: pd.DataFrame) -> pd.DataFrame:
         for label, (mapping, fusion) in {
             "fusion_only": ("default", "on"),
             "placement_only": ("optimized", "off"),
+            "windowed_only": ("windowed", "off"),
             "both": ("optimized", "on"),
         }.items():
             measured = value(mapping, fusion, "bytes_sent")
@@ -513,9 +514,19 @@ def lever_table(data: pd.DataFrame) -> pd.DataFrame:
 
 def plot_levers(table: pd.DataFrame, path: Path, host: str = "") -> Path | None:
     """Traffic under each combination of levers."""
-    if table.empty or "both_bytes" not in table.columns:
+    if table.empty:
         return None
-    if table["both_bytes"].isna().all():
+    measured = [
+        column
+        for column in (
+            "fusion_only_bytes",
+            "placement_only_bytes",
+            "windowed_only_bytes",
+            "both_bytes",
+        )
+        if column in table.columns and not table[column].isna().all()
+    ]
+    if not measured:
         return None
 
     import numpy as np
@@ -525,11 +536,16 @@ def plot_levers(table: pd.DataFrame, path: Path, host: str = "") -> Path | None:
     fig, ax = plt.subplots(figsize=(11, 4.6), facecolor=SURFACE)
     ax.set_facecolor(SURFACE)
 
-    series = [
-        ("baseline_bytes", "default placement, no fusion", SERIES_COLORS[0]),
-        ("fusion_only_bytes", "fusion only", SERIES_COLORS[1]),
-        ("placement_only_bytes", "placement only", SERIES_COLORS[2]),
-        ("both_bytes", "both", SERIES_COLORS[3]),
+    labels_by_column = {
+        "fusion_only_bytes": "fusion only",
+        "placement_only_bytes": "static placement",
+        "windowed_only_bytes": "windowed placement",
+        "both_bytes": "placement + fusion",
+    }
+    series = [("baseline_bytes", "default placement", SERIES_COLORS[0])]
+    series += [
+        (column, labels_by_column[column], SERIES_COLORS[(index + 1) % len(SERIES_COLORS)])
+        for index, column in enumerate(measured)
     ]
     positions = np.arange(len(table), dtype=float)
     width = 0.8 / len(series)
@@ -562,7 +578,7 @@ def plot_levers(table: pd.DataFrame, path: Path, host: str = "") -> Path | None:
     ax.grid(axis="x", visible=False)
     ax.legend(fontsize=8, frameon=False, labelcolor=INK_MUTED)
     fig.suptitle(
-        f"Placement and fusion, separately and together{f' — {host}' if host else ''}",
+        f"Ways to reduce MPI traffic{f' — {host}' if host else ''}",
         fontsize=12,
         color=INK,
     )
@@ -899,7 +915,17 @@ def write_reports(
         written["prediction_accuracy"] = processed / "prediction_accuracy.csv"
 
     levers = lever_table(data)
-    if not levers.empty and not levers["both_bytes"].isna().all():
+    measured_levers = [
+        column
+        for column in (
+            "fusion_only_bytes",
+            "placement_only_bytes",
+            "windowed_only_bytes",
+            "both_bytes",
+        )
+        if column in levers.columns and not levers[column].isna().all()
+    ]
+    if not levers.empty and measured_levers:
         levers.to_csv(processed / "lever_comparison.csv", index=False)
         written["lever_comparison"] = processed / "lever_comparison.csv"
         figure = plot_levers(levers, plots / "lever_comparison.png", host)
@@ -1022,21 +1048,25 @@ def markdown_summary(raw: Path | None = None) -> str:
         lines.append("")
 
     levers = lever_table(data)
-    if not levers.empty and not levers["both_bytes"].isna().all():
-        lines.append("## Optimisation levers, separately and together (measured)")
+    if not levers.empty:
+
+        def lever_percent(value):
+            return "—" if value is None or pd.isna(value) else f"{value * 100:.1f}%"
+
+        lines.append("## Optimisation levers (measured)")
         lines.append("")
-        lines.append("| circuit | ranks | baseline (MiB) | fusion only | placement only | both |")
-        lines.append("|---|---:|---:|---:|---:|---:|")
+        lines.append(
+            "| circuit | ranks | baseline (MiB) | fusion | static placement | "
+            "windowed placement | placement + fusion |"
+        )
+        lines.append("|---|---:|---:|---:|---:|---:|---:|")
         for row in levers.itertuples():
-
-            def percent(value):
-                return "—" if value is None or pd.isna(value) else f"{value * 100:.1f}%"
-
             lines.append(
                 f"| {row.circuit_family} | {row.ranks} | {row.baseline_bytes / 2**20:.0f} | "
-                f"{percent(row.fusion_only_reduction)} | "
-                f"{percent(row.placement_only_reduction)} | "
-                f"{percent(row.both_reduction)} |"
+                f"{lever_percent(row.fusion_only_reduction)} | "
+                f"{lever_percent(row.placement_only_reduction)} | "
+                f"{lever_percent(getattr(row, 'windowed_only_reduction', None))} | "
+                f"{lever_percent(row.both_reduction)} |"
             )
         lines.append("")
 

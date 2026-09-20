@@ -81,6 +81,32 @@ def _cmd_optimize(args: argparse.Namespace) -> int:
     except ValueError as exc:
         raise SystemExit(str(exc)) from None
 
+    if args.fuse:
+        from aegisq.compiler import fuse_single_qubit_runs
+
+        fusion = fuse_single_qubit_runs(circuit)
+        circuit = fusion.circuit
+        print(f"Fusion: {fusion.stats.summary()}")
+        print()
+
+    if args.windowed:
+        from aegisq.compiler.dynamic_mapper import plan_dynamic_placement
+
+        plan = plan_dynamic_placement(circuit, model, window_size=args.window_size)
+        if args.json:
+            import json as _json
+
+            print(_json.dumps(plan.as_dict(), indent=2, sort_keys=True))
+            return 0
+        print(
+            f"Circuit: {circuit.name}  "
+            f"({circuit.num_qubits} qubits, {len(circuit)} gates, depth {circuit.depth()})"
+        )
+        print(f"Ranks:   {args.ranks}  precision: {args.precision}")
+        print()
+        print(plan.report())
+        return 0
+
     mapper = StaticCommunicationMapper(model, candidate_budget=args.candidate_budget)
     result = mapper.optimize(circuit)
 
@@ -1054,6 +1080,17 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=200_000,
         help="maximum subsets to score exhaustively before falling back to a heuristic",
+    )
+    optimize.add_argument(
+        "--fuse", action="store_true", help="fuse single-qubit runs before planning"
+    )
+    optimize.add_argument(
+        "--windowed",
+        action="store_true",
+        help="plan a windowed placement that may change assignment mid-circuit",
+    )
+    optimize.add_argument(
+        "--window-size", type=int, default=128, help="gates per window for --windowed"
     )
     optimize.add_argument("--json", action="store_true", help="emit machine-readable output")
     optimize.set_defaults(func=_cmd_optimize)

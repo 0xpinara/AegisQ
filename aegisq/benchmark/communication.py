@@ -51,7 +51,11 @@ def mapping_experiment(
     options = options or {}
     results: list[LaunchResult] = []
 
-    mappings = ("default", "optimized") if "placement" in levers else ("default",)
+    mappings = ["default"]
+    if "placement" in levers:
+        mappings.append("optimized")
+    if "windowed" in levers:
+        mappings.append("windowed")
     fusions = (False, True) if "fusion" in levers else (False,)
 
     for family in families:
