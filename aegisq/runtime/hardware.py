@@ -154,7 +154,11 @@ def cpu_info() -> Component:
 
 def liboqs_info() -> Component:
     try:
-        import oqs  # type: ignore[import-not-found]
+        # Routed through the secure layer's gate so that `aegisq doctor
+        # --json` is not prefixed with liboqs-python's stdout banner.
+        from aegisq.secure.keys import require_oqs
+
+        oqs = require_oqs()
     except Exception as exc:  # pragma: no cover - depends on local install
         return Component("liboqs", False, f"import failed: {type(exc).__name__}")
     try:

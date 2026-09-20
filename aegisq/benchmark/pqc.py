@@ -105,9 +105,9 @@ def _environment() -> dict[str, Any]:
     from aegisq.benchmark.runner import provenance_row
 
     try:
-        import oqs
+        from aegisq.secure.keys import require_oqs
 
-        liboqs_version = oqs.oqs_version()
+        liboqs_version = require_oqs().oqs_version()
     except Exception:  # pragma: no cover - environment dependent
         liboqs_version = "unavailable"
 
@@ -118,8 +118,9 @@ def _environment() -> dict[str, Any]:
 
 def measure_kem(algorithm: str, iterations: int = 1000) -> list[dict[str, Any]]:
     """Key generation, encapsulation and decapsulation for one KEM."""
-    import oqs
+    from aegisq.secure.keys import require_oqs
 
+    oqs = require_oqs()
     environment = _environment()
     rows: list[dict[str, Any]] = []
 
@@ -170,8 +171,9 @@ def measure_kem(algorithm: str, iterations: int = 1000) -> list[dict[str, Any]]:
 
 def measure_signature(algorithm: str, iterations: int = 1000) -> list[dict[str, Any]]:
     """Key generation, signing and verification for one signature scheme."""
-    import oqs
+    from aegisq.secure.keys import require_oqs
 
+    oqs = require_oqs()
     environment = _environment()
     message = b"aegisq benchmark message" * 8  # ~200 bytes, envelope-sized
     rows: list[dict[str, Any]] = []

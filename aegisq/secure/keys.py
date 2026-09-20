@@ -46,15 +46,63 @@ class IdentityError(RuntimeError):
     """Raised when identity material is missing, malformed or unusable."""
 
 
+def _detach_oqs_stdout_handler(oqs) -> None:
+    """Stop liboqs-python from writing to our stdout after import.
+
+    On import `oqs` attaches a `StreamHandler(sys.stdout)` to its own
+    logger and sets it to INFO, so every subsequent informational message
+    it emits lands on standard output -- which, for this tool, is where
+    machine-readable results go.
+
+    The handler is removed rather than silenced so that a caller who has
+    configured logging still receives the records by propagation. Only
+    handlers writing to stdout are touched; a handler on stderr is a
+    diagnostic channel and none of our business.
+    """
+    import logging
+    import sys
+
+    logger = logging.getLogger(oqs.oqs.__name__ if hasattr(oqs, "oqs") else "oqs.oqs")
+    for handler in list(logger.handlers):
+        writes_to_stdout = getattr(handler, "stream", None) in (sys.stdout, sys.__stdout__)
+        if isinstance(handler, logging.StreamHandler) and writes_to_stdout:
+            logger.removeHandler(handler)
+
+
 def require_oqs():
-    """Import liboqs, or explain how to get it."""
+    """Import liboqs, or explain how to get it.
+
+    The import is wrapped in `logging.disable`. liboqs-python logs a line
+    about faulthandler while it is being imported, to a handler bound to
+    the real `sys.stdout` object -- captured with `from sys import
+    stdout`, so `contextlib.redirect_stdout` cannot reach it and the line
+    has already been written by the time the import returns.
+
+    The effect was that every `--json` invocation touching the secure
+    layer printed
+
+        liboqs-python faulthandler is disabled
+        { ... }
+
+    and no JSON parser accepts that. A tool that offers `--json` owns its
+    standard output; a dependency's banner on it is a bug in the tool.
+    """
+    import logging
+
+    previous = logging.root.manager.disable
     try:
-        import oqs  # type: ignore[import-not-found]
-    except ImportError as exc:  # pragma: no cover - depends on the install
-        raise IdentityError(
-            "liboqs-python is required for the secure job layer; "
-            "install it with `pip install aegisq[crypto]`"
-        ) from exc
+        logging.disable(logging.INFO)
+        try:
+            import oqs  # type: ignore[import-not-found]
+        except ImportError as exc:  # pragma: no cover - depends on the install
+            raise IdentityError(
+                "liboqs-python is required for the secure job layer; "
+                "install it with `pip install aegisq[crypto]`"
+            ) from exc
+    finally:
+        logging.disable(previous)
+
+    _detach_oqs_stdout_handler(oqs)
     return oqs
 
 
