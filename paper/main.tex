@@ -328,10 +328,10 @@ all --- every qubit but one is a \texttt{cx} target exactly once, so no
 placement is better than another. We report that as a result: a heuristic that
 claimed a win on every circuit would be the suspicious one.
 
-Wall time does not track bytes proportionally. The Ising chain sheds $14.8\%$
-of its traffic with no measurable time improvement, which is what one expects
-when communication is not the bottleneck --- here, shared-memory MPI on one
-socket, where a ``transfer'' is a memory copy.
+Wall time does not track bytes proportionally. The Ising chain sheds
+\aegisqIsingTraffic{} of its traffic with no resolvable time improvement, which
+is what one expects when communication is not the bottleneck --- here,
+shared-memory MPI on one socket, where a ``transfer'' is a memory copy.
 
 The cost model predicted the byte count and the message count \emph{exactly} in
 all \aegisqPredictionConfigs{} distributed configurations measured.

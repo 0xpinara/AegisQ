@@ -577,11 +577,27 @@ def test_the_paper_does_not_restate_a_generated_figure_by_hand():
     macros = (root / "paper" / "tables" / "measured.tex").read_text(encoding="utf-8")
 
     values = dict(re.findall(r"\\newcommand\{\\(aegisq\w+)\}\{([^}]*)\}", macros))
-    interesting = ("aegisqQftTraffic", "aegisqGroverTraffic", "aegisqWallNoiseFloor")
-    for name in interesting:
-        literal = values.get(name, "").replace("\\%", "").strip()
+    interesting = (
+        "aegisqQftTraffic",
+        "aegisqGroverTraffic",
+        "aegisqIsingTraffic",
+        "aegisqWallNoiseFloor",
+    )
+    # Distinct quantities can share a value -- the noise floor and the Ising
+    # traffic reduction both came out at 14.8% in one run -- so a literal is
+    # reported with every macro it could have come from, rather than with a
+    # guess at which one the author meant.
+    for literal in sorted(
+        {values.get(name, "").replace("\\%", "").strip() for name in interesting}
+    ):
         if not literal:
             continue
+        owners = sorted(
+            name for name, value in values.items() if value.replace("\\%", "").strip() == literal
+        )
         # `\input`-ed tables legitimately carry the same number; only the
         # hand-written prose in main.tex is checked.
-        assert literal not in paper, f"main.tex writes {literal} literally; use \\{name} instead"
+        assert literal not in paper, (
+            f"main.tex writes {literal} literally; use one of "
+            + ", ".join(f"\\{name}" for name in owners)
+        )

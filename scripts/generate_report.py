@@ -758,7 +758,7 @@ def write_measured_macros(data, directory: Path) -> Path:
     )
     path = directory / "measured.tex"
     path.write_text(text, encoding="utf-8")
-    print(f"Wrote {path.relative_to(ROOT)}")
+    # Reporting is the caller's job, as it is for every other emitted file.
     return path
 
 

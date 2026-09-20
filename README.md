@@ -112,19 +112,19 @@ aegisq doctor   # report MPI / OpenMP / liboqs / Qiskit availability
 
 <!-- BENCHMARK-RESULTS:START -->
 
-All figures below were measured on **Apple M2 (8 logical cores)**, macOS-15.6.1-arm64-arm-64bit, Open MPI v5.0.10, AegisQ 0.1.0 at commit `1f1a8dbb776e`. They describe that host and are not a claim about cluster hardware.
+All figures below were measured on **Apple M2 (8 logical cores)**, macOS-15.6.1-arm64-arm-64bit, Open MPI v5.0.10, AegisQ 0.1.0 at commit `67fb99bd336c`. They describe that host and are not a claim about cluster hardware.
 
 ### Communication-aware placement, 8 ranks, 20 qubits
 
 | circuit | measured MPI bytes, default | measured MPI bytes, optimized | reduction | wall time change |
 |---|---:|---:|---:|---:|
-| qft | 981,467,136 | 125,829,120 | **87.2%** | -13.6% (unresolved) |
-| grover | 1,879,048,192 | 520,093,696 | **72.3%** | -5.5% (unresolved) |
-| random | 411,041,792 | 251,658,240 | **38.8%** | -9.8% (unresolved) |
-| ising | 452,984,832 | 385,875,968 | **14.8%** | -14.4% (unresolved) |
-| ghz | 25,165,824 | 25,165,824 | **0.0%** | -30.8% (unresolved) |
+| qft | 981,467,136 | 125,829,120 | **87.2%** | -26.6% |
+| grover | 1,879,048,192 | 520,093,696 | **72.3%** | -17.7% (unresolved) |
+| random | 411,041,792 | 251,658,240 | **38.8%** | +1.8% (unresolved) |
+| ising | 452,984,832 | 385,875,968 | **14.8%** | -3.8% (unresolved) |
+| ghz | 25,165,824 | 25,165,824 | **0.0%** | +14.8% (unresolved) |
 
-Byte counts are exact counters. Wall times are not, and at this size they are barely a measurement: the circuits with a 0.0% reduction send byte for byte what the default sends, so their true wall-time effect is zero, and the clock still reported up to **30.8%**. That is the noise floor of this experiment, measured rather than assumed, and a change is marked unresolved unless it clears the floor and its repeat ranges do not overlap the baseline's. Most do not clear it. The placement result is the traffic reduction; the wall-time column is reported for completeness and should not be read as a speedup on this host.
+Byte counts are exact counters. Wall times are not, and at this size they are barely a measurement: the circuits with a 0.0% reduction send byte for byte what the default sends, so their true wall-time effect is zero, and the clock still reported up to **14.8%**. That is the noise floor of this experiment, measured rather than assumed, and a change is marked unresolved unless it clears the floor and its repeat ranges do not overlap the baseline's. Most do not clear it. The placement result is the traffic reduction; the wall-time column is reported for completeness and should not be read as a speedup on this host.
 
 Not every circuit benefits: ghz shows no reduction, because its expensive qubits already sit well under the default placement. That is a result, not a gap — a heuristic that claimed a win on every circuit would be the suspicious one.
 
@@ -154,14 +154,14 @@ Placement and fusion are not independent either: for `random` the pair removes 5
 
 | circuit | qubits | ranks | wall time (s) | speedup | efficiency |
 |---|---:|---:|---:|---:|---:|
-| ising | 22 | 1 | 1.815 | 1.00x | 100% |
-| ising | 22 | 2 | 0.961 | 1.89x | 94% |
-| ising | 22 | 4 | 0.681 | 2.66x | 67% |
-| ising | 22 | 8 | 0.750 | 2.42x | 30% |
-| qft | 22 | 1 | 5.211 | 1.00x | 100% |
-| qft | 22 | 2 | 2.765 | 1.88x | 94% |
-| qft | 22 | 4 | 1.907 | 2.73x | 68% |
-| qft | 22 | 8 | 1.988 | 2.62x | 33% |
+| ising | 22 | 1 | 1.909 | 1.00x | 100% |
+| ising | 22 | 2 | 1.045 | 1.83x | 91% |
+| ising | 22 | 4 | 0.759 | 2.52x | 63% |
+| ising | 22 | 8 | 0.735 | 2.60x | 32% |
+| qft | 22 | 1 | 5.433 | 1.00x | 100% |
+| qft | 22 | 2 | 3.054 | 1.78x | 89% |
+| qft | 22 | 4 | 2.378 | 2.28x | 57% |
+| qft | 22 | 8 | 2.416 | 2.25x | 28% |
 
 ![Strong scaling](benchmarks/plots/strong_scaling.png)
 
@@ -208,15 +208,15 @@ Wall time alone cannot say. State-vector simulation is bandwidth-bound, so each 
 
 | kernel | GB/s achieved | reference | fraction |
 |---|---:|---:|---:|
-| h | 78.6 | 78.5 | 100% |
-| rz | 75.1 | 78.5 | 96% |
-| cz | 48.8 | 78.5 | 62% |
-| swap | 43.0 | 78.5 | 55% |
-| cx | 42.2 | 78.5 | 54% |
+| rz | 80.1 | 79.6 | 101% |
+| h | 78.2 | 79.6 | 98% |
+| cz | 49.0 | 79.6 | 62% |
+| swap | 44.5 | 79.6 | 56% |
+| cx | 41.2 | 79.6 | 52% |
 
-The kernels that sweep the whole state — a general single-qubit gate and a diagonal one — run at 96–100% of that reference, which is to say they are memory-bound and there is little left to win. The ones that touch only part of the state plateau near 57%: they read and write a strided fraction of the array and leave about half the bandwidth unused. That is a concrete optimisation target rather than a mystery.
+The kernels that sweep the whole state — a general single-qubit gate and a diagonal one — run at 98–101% of that reference, which is to say they are memory-bound and there is little left to win. The ones that touch only part of the state plateau near 56%: they read and write a strided fraction of the array and leave about half the bandwidth unused. That is a concrete optimisation target rather than a mystery.
 
-The communication cost model assumes only the local/global distinction matters, never which *local* position a qubit occupies. Measured, that holds for most kernels (`rz` varies by 2% across target positions) and fails for `cz`, which varies by 50%. The model is therefore right about network traffic and incomplete about local cost — stated here rather than left for a reader to discover.
+The communication cost model assumes only the local/global distinction matters, never which *local* position a qubit occupies. Measured, that holds for most kernels (`rz` varies by 2% across target positions) and fails for `cz`, which varies by 53%. The model is therefore right about network traffic and incomplete about local cost — stated here rather than left for a reader to discover.
 
 ![Local kernel bandwidth](benchmarks/plots/kernel_bandwidth.png)
 
@@ -225,16 +225,16 @@ The communication cost model assumes only the local/global distinction matters, 
 | operation | median | size |
 |---|---:|---:|
 | ML-DSA-65 keygen | 53.6 us | 1952 B |
-| ML-DSA-65 sign | 94.9 us | 3309 B |
-| ML-DSA-65 verify | 49.4 us | 3309 B |
-| ML-KEM-768 decapsulate | 19.9 us | 32 B |
-| ML-KEM-768 encapsulate | 17.4 us | 1088 B |
-| ML-KEM-768 keygen | 16.8 us | 1184 B |
+| ML-DSA-65 sign | 93.0 us | 3309 B |
+| ML-DSA-65 verify | 49.3 us | 3309 B |
+| ML-KEM-768 decapsulate | 21.0 us | 32 B |
+| ML-KEM-768 encapsulate | 18.3 us | 1088 B |
+| ML-KEM-768 keygen | 16.9 us | 1184 B |
 | pack a job bundle (end to end) | 3.1 ms | — |
-| verify, decrypt and open it | 5.5 ms | — |
+| verify, decrypt and open it | 5.8 ms | — |
 | envelope overhead, independent of circuit size | — | 7083 B |
 
-For scale: the heaviest job measured here (grover, 20 qubits, 8 ranks) runs for 468 ms and moves 1792 MiB over MPI. Securing it costs 8.6 ms end to end and 6.9 KiB on the wire — 1.85% of the runtime. Only 182 us of that is lattice arithmetic; the rest is canonical serialisation and base64, which is where an optimisation would actually pay off.
+For scale: the heaviest job measured here (grover, 20 qubits, 8 ranks) runs for 580 ms and moves 1792 MiB over MPI. Securing it costs 8.9 ms end to end and 6.9 KiB on the wire — 1.53% of the runtime. Only 182 us of that is lattice arithmetic; the rest is canonical serialisation and base64, which is where an optimisation would actually pay off.
 
 ### Why post-quantum cryptography, in one table
 
