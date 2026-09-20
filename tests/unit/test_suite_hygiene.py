@@ -77,3 +77,37 @@ def test_missing_mpi_support_skips_without_a_launcher(monkeypatch):
     with pytest.raises(BaseException) as caught:
         conftest._require_mpi_core()
     assert type(caught.value).__name__ == "Skipped", f"expected a skip, got {caught.value!r}"
+
+
+def test_naming_the_secret_half_never_loads_secret_material(tmp_path):
+    """Asking for a public key must not read the secret file, ever.
+
+    The identity resolver accepts either half's filename so that
+    `--cluster hpc1`, `--cluster hpc1.public.json` and
+    `--cluster hpc1.secret.json` all work -- the same flag used to mean a
+    different one of the three in each subcommand. Convenience here has
+    an obvious failure mode, so it is pinned: naming the secret half
+    resolves to the public one rather than parsing secret material as a
+    public key.
+    """
+    pytest.importorskip("oqs", reason="liboqs-python is not installed (crypto extra)")
+    from aegisq.secure.keys import generate_cluster_identity, resolve_identity_file
+
+    generate_cluster_identity("hpc1", tmp_path)
+    public = tmp_path / "hpc1.public.json"
+    secret = tmp_path / "hpc1.secret.json"
+
+    for spelling in (tmp_path / "hpc1", public, secret):
+        assert resolve_identity_file(spelling, "public") == public
+    for spelling in (tmp_path / "hpc1", public, secret):
+        assert resolve_identity_file(spelling, "secret") == secret
+
+
+def test_a_missing_identity_reports_what_it_looked_for(tmp_path):
+    """The old message named a path the user had not typed."""
+    from aegisq.secure.keys import IdentityError, resolve_identity_file
+
+    with pytest.raises(IdentityError) as caught:
+        resolve_identity_file(tmp_path / "absent", "public")
+    message = str(caught.value)
+    assert "absent.public.json" in message and "tried" in message

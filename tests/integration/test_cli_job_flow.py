@@ -360,3 +360,57 @@ def test_every_json_command_emits_only_json(identities, bundle, tmp_path):
             pytest.fail(
                 f"`aegisq {name} --json` emitted non-JSON on stdout: {exc}\n{completed.stdout[:200]!r}"
             )
+
+
+@pytest.mark.parametrize("spelling", ["stem", "public-file", "secret-file"])
+def test_an_identity_can_be_named_any_of_the_three_ways(identities, tmp_path, spelling):
+    """`--cluster` used to mean a different thing in each subcommand.
+
+    `secure-pack` wanted the full public path, `secure-run` wanted the
+    bare stem, and `verify-result` wanted the full path again -- with an
+    error message that reported a path the user had never typed. All
+    three spellings now work everywhere, and naming the secret half
+    resolves to the public one rather than reading it.
+    """
+    stem = identities["cluster"]
+    named = {
+        "stem": stem,
+        "public-file": stem.with_name(stem.name + ".public.json"),
+        "secret-file": stem.with_name(stem.name + ".secret.json"),
+    }[spelling]
+
+    bundle = tmp_path / "job.aqj"
+    ok(
+        aegisq(
+            "secure-pack",
+            "ghz",
+            "--qubits",
+            3,
+            "--identity",
+            identities["client"],
+            "--cluster",
+            named,
+            "--output",
+            bundle,
+        ),
+        f"secure-pack with a {spelling}",
+    )
+
+    inspected = parse_json(ok(aegisq("secure-inspect", bundle, "--json"), "secure-inspect"))
+    assert inspected["cluster_name"] == "hpc1"
+
+    executed = ok(
+        aegisq(
+            "secure-run",
+            bundle,
+            "--cluster",
+            named,
+            "--trusted",
+            identities["trusted"],
+            "--replay-db",
+            tmp_path / "replay.db",
+            "--json",
+        ),
+        f"secure-run with a {spelling}",
+    )
+    assert parse_json(executed)["job_id"] == inspected["job_id"]

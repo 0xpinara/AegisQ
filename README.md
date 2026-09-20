@@ -283,15 +283,21 @@ aegisq keys init-cluster courant --directory keys
 
 # client side: encrypt to the cluster, sign with your key
 aegisq secure-pack qft --qubits 24 --identity keys/pinar \
-    --cluster keys/courant.public.json --ranks 8 --shots 1024 --output qft24.aqjob
+    --cluster keys/courant --ranks 8 --shots 1024 --output qft24.aqjob
 
 # cluster side: verify, decrypt, run, sign the result
 mpirun -np 8 aegisq secure-run qft24.aqjob --cluster keys/courant \
     --trusted keys/trusted --output qft24.aqresult
 
 # anyone: check the signed execution record
-aegisq verify-result qft24.aqresult --cluster keys/courant.public.json
+aegisq verify-result qft24.aqresult --cluster keys/courant
 ```
+
+An identity is named by its stem, as `keys init-*` prints it. The full
+filename of either half (`keys/courant.public.json`,
+`keys/courant.secret.json`) is accepted too and resolves to whichever half
+the command needs -- naming the secret file where a public key is wanted
+reads the public one, never the secret.
 
 Circuit input is a **documented subset** of OpenQASM (single register, the
 twelve supported gates, terminal measurement); anything outside it is rejected

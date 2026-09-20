@@ -1047,10 +1047,16 @@ def build_parser() -> argparse.ArgumentParser:
     secure_pack.add_argument("circuit", help="circuit file or benchmark family name")
     secure_pack.add_argument("--qubits", type=int, help="width, when building a named family")
     secure_pack.add_argument(
-        "--identity", type=Path, required=True, help="client identity base path (no suffix)"
+        "--identity",
+        type=Path,
+        required=True,
+        help="client identity (stem or either half's filename); the secret half signs",
     )
     secure_pack.add_argument(
-        "--cluster", type=Path, required=True, help="cluster public identity file"
+        "--cluster",
+        type=Path,
+        required=True,
+        help="cluster identity (stem or either half's filename); the public half is encrypted to",
     )
     secure_pack.add_argument("--ranks", type=int, default=1)
     secure_pack.add_argument("--precision", choices=("fp64", "fp32"), default="fp64")
@@ -1081,7 +1087,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     secure_run.add_argument("bundle", type=Path)
     secure_run.add_argument(
-        "--cluster", type=Path, required=True, help="cluster identity base path"
+        "--cluster",
+        type=Path,
+        required=True,
+        help="cluster identity (stem or either half's filename); the secret half decrypts",
     )
     secure_run.add_argument(
         "--trusted",
@@ -1109,7 +1118,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify_result_cmd.add_argument("result", type=Path)
     verify_result_cmd.add_argument(
-        "--cluster", type=Path, required=True, help="cluster public identity file"
+        "--cluster",
+        type=Path,
+        required=True,
+        help="cluster identity (stem or either half's filename); the public half verifies",
     )
     verify_result_cmd.add_argument(
         "--artifacts", type=Path, help="directory holding referenced (non-inline) artefacts"

@@ -340,30 +340,74 @@ def generate_cluster_identity(
     )
 
 
+#: The two halves an identity is stored as, by `aegisq keys init-*`.
+_HALVES = {"public": ".public.json", "secret": ".secret.json"}
+
+
+def identity_stem(path: Path) -> Path:
+    """Strip `.public.json` or `.secret.json`, leaving the identity's stem."""
+    path = Path(path)
+    for suffix in _HALVES.values():
+        if path.name.endswith(suffix):
+            return path.with_name(path.name[: -len(suffix)])
+    return path
+
+
+def resolve_identity_file(path: Path, half: str) -> Path:
+    """Find one half of an identity, given any reasonable way of naming it.
+
+    `aegisq keys init-cluster hpc1` writes `hpc1.public.json` and
+    `hpc1.secret.json`, and the commands disagreed about which of the
+    three forms they accepted: `secure-pack --cluster` wanted the full
+    public path, `secure-run --cluster` wanted the bare stem, and
+    `verify-result --cluster` wanted the full path again. One flag name
+    meaning three things is a poor property for a tool whose entire job
+    is pointing at the right key, and the error message did not say which
+    form it had expected -- it just reported a path the user never typed.
+
+    All three forms are accepted now. Naming the *other* half resolves to
+    the one actually wanted rather than being read: asking for a public
+    key must never end in secret material being parsed as one, however
+    the caller spelled it.
+    """
+    path = Path(path)
+    wanted = _HALVES[half]
+    other = _HALVES["secret" if half == "public" else "public"]
+
+    if path.name.endswith(other):
+        candidates = [path.with_name(path.name[: -len(other)] + wanted)]
+    elif path.name.endswith(wanted):
+        candidates = [path]
+    else:
+        candidates = [path.with_name(path.name + wanted), path]
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    tried = ", ".join(str(candidate) for candidate in candidates)
+    raise IdentityError(f"{half} identity not found (tried {tried})")
+
+
 def load_public_identity(path: Path) -> PublicIdentity:
     from aegisq.secure.canonical import parse_canonical
 
-    path = Path(path)
-    if not path.exists():
-        raise IdentityError(f"public identity not found: {path}")
-    return PublicIdentity.from_dict(parse_canonical(path.read_bytes()))
+    resolved = resolve_identity_file(path, "public")
+    return PublicIdentity.from_dict(parse_canonical(resolved.read_bytes()))
 
 
 def load_secret_identity(path: Path) -> SecretIdentity:
     from aegisq.secure.canonical import parse_canonical
 
-    path = Path(path)
-    if not path.exists():
-        raise IdentityError(f"secret identity not found: {path}")
-    _warn_on_loose_permissions(path)
-    return SecretIdentity.from_dict(parse_canonical(path.read_bytes()))
+    resolved = resolve_identity_file(path, "secret")
+    _warn_on_loose_permissions(resolved)
+    return SecretIdentity.from_dict(parse_canonical(resolved.read_bytes()))
 
 
 def load_identity(base: Path) -> Identity:
-    """Load `<base>.public.json` and `<base>.secret.json`."""
-    base = Path(base)
-    public_path = base.with_name(base.name + ".public.json")
-    secret_path = base.with_name(base.name + ".secret.json")
+    """Load both halves, given the stem or either half's filename."""
+    base = identity_stem(base)
+    public_path = resolve_identity_file(base, "public")
+    secret_path = resolve_identity_file(base, "secret")
     return Identity(
         public=load_public_identity(public_path),
         secret=load_secret_identity(secret_path),
