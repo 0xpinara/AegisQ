@@ -16,3 +16,8 @@ jobs:
           python-version: "3.12"
       - name: Check relative Markdown links resolve
         run: python scripts/check_doc_links.py
+
+      - name: Check the README's measured numbers still follow from the raw data
+        run: |
+          pip install -e ".[benchmark]"
+          python scripts/generate_report.py --check --skip-reports

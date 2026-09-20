@@ -52,6 +52,9 @@ jobs:
         run: ctest --test-dir build --output-on-failure
       - name: Python tests
         run: python -m pytest tests -m "not slow and not mpi and not gpu" -q
+      - name: Slow tests (randomised cross-validation, Shor on 21)
+        if: matrix.python-version == '3.12'
+        run: python -m pytest tests -m "slow and not mpi and not gpu" -q
       - name: CLI smoke test
         run: |
           aegisq --version

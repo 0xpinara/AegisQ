@@ -4,7 +4,11 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] — 2026-09-19
+
+First complete implementation: distributed simulation, communication-aware
+placement, post-quantum job security and the measurements behind all three
+research questions.
 
 ### Added
 - Project foundation: CMake/C++20 core skeleton, pybind11 extension plumbing,

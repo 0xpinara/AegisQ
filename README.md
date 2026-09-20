@@ -8,14 +8,49 @@
 ![mpi](https://img.shields.io/badge/MPI-OpenMPI%20%7C%20MPICH-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
-AegisQ-HPC is a research prototype that studies the intersection of quantum
-circuit simulation, distributed-memory high-performance computing, and
-post-quantum secure job provenance.
+A distributed quantum state-vector simulator that partitions the state across
+MPI ranks, **chooses the qubit-to-rank placement deliberately instead of by
+accident**, measures every byte it sends, and protects job submission and
+result provenance with NIST-standardised post-quantum cryptography.
 
-The simulator is implemented from scratch: state vectors are partitioned
-across MPI ranks by AegisQ's own runtime. Qiskit is used **only** as a
-correctness oracle in the test suite, and external simulators (Qiskit Aer,
-CUDA-Q) are used **only** as optional benchmark references.
+The simulator is written from scratch in C++20 with MPI and OpenMP. Qiskit is
+used **only** as a correctness oracle in the test suite — never by the
+runtime, and never as a performance baseline (no simulator-versus-simulator
+comparison is made here; see [docs/limitations.md](docs/limitations.md)).
+
+> **Headline result.** On 8 ranks at 20 qubits, communication-aware placement
+> removed **87.2% of measured MPI traffic** for a quantum Fourier transform
+> (wall time −24.3%) and 72.3% for Grover — and left a GHZ chain untouched,
+> because nothing there can be improved. The analytical cost model predicted
+> the byte count *exactly* in all 42 distributed configurations measured.
+> [Full numbers below](#measured-results), from raw data in
+> [`benchmarks/raw/`](benchmarks/raw/).
+
+```
+     circuit ──► communication cost model ──► qubit placement search
+                                                      │
+        .aqjob  (ML-KEM-768 + ML-DSA-65 + AES-256-GCM)│
+           │                                          ▼
+           └─► verify ─► decrypt ─► ┌──────────── distributed runtime ────────────┐
+                                    │ rank 0    rank 1    rank 2    rank 3        │
+                                    │ shard     shard     shard     shard         │
+                                    │      ↔ instrumented MPI exchange ↔          │
+                                    └──────────────────┬──────────────────────────┘
+                                                       ▼
+                             .aqresult  (Merkle root + ML-DSA signature + metrics)
+```
+
+## What is implemented
+
+| Area | Capability |
+|---|---|
+| Simulation | distributed state vector over MPI, OpenMP local kernels, fp64/fp32, twelve gates, terminal measurement |
+| Placement | gate-role-aware cost model in bytes, exhaustive or heuristic search, applied by the runtime |
+| Instrumentation | every MPI transfer timed and counted, per opcode, rank-local and world-reduced |
+| Security | ML-KEM-768 / ML-DSA-65 job envelopes, replay protection, signed Merkle-committed results |
+| Algorithms | GHZ, QFT, Trotterised Ising, Grover, Shor (factors 15 and 21), random circuits |
+| Measurement | reproducible sweeps writing raw CSV; every figure and table derived from it |
+| Validation | every distributed kernel checked against a single-process reference at 1/2/4/8 ranks, plus 100 randomised Qiskit comparisons per run |
 
 ## Research questions
 
@@ -41,34 +76,6 @@ Beyond a single machine's memory the state must be partitioned, and
 partitioning turns some quantum gates into network operations. Which gates
 those are depends on the qubit-to-rank mapping — and that is the optimisation
 problem at the centre of this project.
-
-## Project status
-
-This repository is built in phases; only what is checked below is implemented.
-
-- [x] Phase 0 — project foundation, build system, CI, `aegisq doctor`
-- [x] Phase 1 — NumPy reference simulator
-- [x] Phase 2 — C++20 single-process state-vector engine
-- [x] Phase 3 — randomised Qiskit cross-validation
-- [x] Phase 4 — distributed MPI state layout
-- [x] Phase 5 — local and diagonal distributed gates
-- [x] Phase 6 — global non-diagonal single-qubit gates
-- [x] Phase 7 — topology-aware distributed CNOT
-- [x] Phase 8 — communication profiler
-- [x] Phase 9 — gate-aware communication cost model
-- [x] Phase 10 — static communication-aware mapper
-- [x] Phase 11 — mapper evaluation on measured hardware
-- [x] Phase 12 — OpenQASM subset front end
-- [x] Phase 13 — memory estimator
-- [x] Phase 14 — post-quantum identities (ML-KEM-768 / ML-DSA-65)
-- [x] Phase 15 — secure job envelopes
-- [x] Phase 16 — verified job execution and replay protection
-- [x] Phase 17 — signed result provenance and Merkle verification
-- [x] Phase 18 — security model documentation
-
-Benchmark numbers in this README are generated from raw measurements under
-`benchmarks/raw/` by [`scripts/generate_report.py`](scripts/generate_report.py);
-none are typed by hand.
 
 ## Quick start
 
