@@ -3,9 +3,10 @@
 namespace aegisq {
 
 void CommunicationProfiler::record_exchange(OpCode opcode, std::size_t bytes_sent,
-                                            std::size_t bytes_received, double seconds) {
-    ++metrics_.send_calls;
-    ++metrics_.receive_calls;
+                                            std::size_t bytes_received, double seconds,
+                                            std::uint64_t messages) {
+    metrics_.send_calls += messages;
+    metrics_.receive_calls += messages;
     ++metrics_.pairwise_exchanges;
     metrics_.bytes_sent += bytes_sent;
     metrics_.bytes_received += bytes_received;
@@ -13,6 +14,7 @@ void CommunicationProfiler::record_exchange(OpCode opcode, std::size_t bytes_sen
 
     GateCommunication& entry = metrics_.per_opcode[std::string(opcode_name(opcode))];
     ++entry.exchanges;
+    entry.messages += messages;
     entry.bytes_sent += bytes_sent;
     entry.bytes_received += bytes_received;
     entry.communication_seconds += seconds;

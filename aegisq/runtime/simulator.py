@@ -97,6 +97,17 @@ class Simulator:
         ``save_statevector`` defaults to True when no shots are requested, so
         ``run(circuit)`` alone gives the amplitudes used by correctness tests.
         """
+        if not isinstance(shots, int) or isinstance(shots, bool):
+            raise TypeError(f"shots must be an int, got {type(shots).__name__}")
+        if shots < 0:
+            raise ValueError(f"shots must be non-negative, got {shots}")
+        if seed is not None and (not isinstance(seed, int) or isinstance(seed, bool)):
+            raise TypeError(f"seed must be an int or None, got {type(seed).__name__}")
+        if seed is not None and seed < 0:
+            # The native sampler seeds a uint64 engine; a negative value would
+            # be reinterpreted rather than rejected.
+            raise ValueError(f"seed must be non-negative, got {seed}")
+
         if save_statevector is None:
             save_statevector = shots == 0
         runner = _BACKENDS[self.backend]

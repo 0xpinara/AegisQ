@@ -4,6 +4,34 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Property-based tests (Hypothesis) covering backend agreement, norm
+  preservation, circuit and QASM round trips, the optimiser's fast scorer,
+  canonical serialisation and Merkle audit paths. Budgets are profile-driven:
+  a fast default locally, `--hypothesis-profile=deep` (2000 examples per
+  property) in CI.
+- Exhaustive distributed correctness tests at the smallest legal shard
+  (one or two local qubits per rank), where index arithmetic degenerates.
+- Tests for the chunked-transfer path, reachable now that the per-call element
+  limit is adjustable at runtime.
+
+### Changed
+- `send_calls`/`receive_calls` now count **physical** MPI calls while
+  `pairwise_exchanges` counts **logical** shard exchanges. They were
+  previously identical, which made one of them meaningless and would have
+  under-reported message counts for shards above the int-typed MPI limit.
+- Shot and seed arguments are validated once in `Simulator.run`, so every
+  backend rejects them with the same message. The native backend previously
+  surfaced a pybind11 type error for a negative shot count.
+
+### Fixed
+- OpenQASM gate names are now case-sensitive, matching the treatment of
+  declaration keywords; the error names the lowercase spelling.
+- A malformed qubit index (`q[-1]`, `q[x]`) is reported as malformed instead
+  of being blamed on register-wide application.
+
 ## [0.1.0] — 2026-09-19
 
 First complete implementation: distributed simulation, communication-aware

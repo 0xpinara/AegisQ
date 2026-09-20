@@ -100,7 +100,11 @@ def test_barrier_is_accepted_and_ignored():
         ("qreg q[2]; cx q[0], q[0];", "distinct"),
         ("qreg q[2]; qreg r[2];", "single quantum register"),
         ("qreg q[2]; h r[0];", "unknown register"),
-        ("qreg q[2]; h q;", "register-wide application is not supported"),
+        ("qreg q[2]; h q;", "names a whole register"),
+        ("qreg q[2]; h q[-1];", "malformed"),
+        ("qreg q[2]; h q[x];", "malformed"),
+        ("qreg q[2]; H q[0];", "case-sensitive"),
+        ("QREG q[2]; h q[0];", "before any quantum register"),
         ("qreg q[2]; reset q[0];", "reset is not supported"),
         ("qreg q[2]; gate mygate a { h a; }", "custom gate definitions"),
         ("h;", "before any quantum register"),
@@ -149,6 +153,20 @@ def test_shipped_examples_parse_and_run(filename):
     assert sum(result.counts.values()) == 200
     # Both examples prepare a GHZ-type state: only all-zeros and all-ones.
     assert set(result.counts) == {"0" * circuit.num_qubits, "1" * circuit.num_qubits}
+
+
+def test_case_sensitive_gate_name_suggests_the_lowercase_form():
+    """OpenQASM identifiers are case-sensitive, so say so rather than guessing."""
+    with pytest.raises(QasmError, match="write 'rx' rather than 'RX'"):
+        parse_qasm("qreg q[2]; RX(0.5) q[0];")
+
+
+def test_malformed_index_is_not_blamed_on_register_wide_application():
+    """The two failures are different and used to share one misleading message."""
+    with pytest.raises(QasmError, match="non-negative integer index"):
+        parse_qasm("qreg q[2]; h q[1.5];")
+    with pytest.raises(QasmError, match="indexed qubit such as q\\[0\\]"):
+        parse_qasm("qreg q[2]; cx q, q[1];")
 
 
 def test_emitter_rejects_unknown_version():

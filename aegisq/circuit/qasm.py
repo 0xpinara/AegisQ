@@ -215,11 +215,21 @@ def parse_qasm(source: str, name: str = "qasm") -> Circuit:
 def _operand_index(
     operand: str, register: str | None, size: int | None, number: int, statement: str
 ) -> int:
-    match = _OPERAND.match(operand.strip())
+    text = operand.strip()
+    match = _OPERAND.match(text)
     if not match:
+        # Distinguish the two ways this goes wrong: a whole register was named,
+        # or the index itself is malformed.
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", text):
+            raise QasmError(
+                f"operand {text!r} names a whole register; AegisQ requires an "
+                f"indexed qubit such as {text}[0]",
+                number,
+                statement,
+            )
         raise QasmError(
-            f"operand {operand.strip()!r} must be of the form {register or 'q'}[i]; "
-            "register-wide application is not supported",
+            f"operand {text!r} is malformed; expected {register or 'q'}[i] with a "
+            "non-negative integer index",
             number,
             statement,
         )
@@ -244,8 +254,18 @@ def _apply_gate_statement(
     if not match:
         raise QasmError(f"cannot parse statement {statement!r}", number, statement)
 
-    opcode = match.group("name").lower()
+    opcode = match.group("name")
     if opcode not in GATE_SPECS:
+        # OpenQASM identifiers are case-sensitive, and so are the declaration
+        # keywords this parser already rejects when capitalised. Accepting
+        # `H` while rejecting `QREG` would be an inconsistency dressed up as
+        # convenience, so the case is called out instead of silently fixed.
+        if opcode.lower() in GATE_SPECS:
+            raise QasmError(
+                f"gate names are case-sensitive; write {opcode.lower()!r} rather than {opcode!r}",
+                number,
+                statement,
+            )
         raise QasmError(
             f"gate {opcode!r} is outside the AegisQ instruction set "
             f"({', '.join(sorted(GATE_SPECS))})",

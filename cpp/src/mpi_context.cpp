@@ -8,7 +8,21 @@ namespace {
 
 bool g_finalized = false;
 
+/// 2^28 complex128 values is 4 GiB, comfortably inside int range.
+std::size_t g_max_exchange_elements = 1ULL << 28;
+
 }  // namespace
+
+std::size_t max_exchange_elements() {
+    return g_max_exchange_elements;
+}
+
+void set_max_exchange_elements(std::size_t count) {
+    if (count == 0) {
+        throw std::invalid_argument("exchange chunk size must be at least one element");
+    }
+    g_max_exchange_elements = count;
+}
 
 MpiContext::MpiContext() {
 #if AEGISQ_HAVE_MPI

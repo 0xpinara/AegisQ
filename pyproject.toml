@@ -41,6 +41,7 @@ dev = [
     "pytest-timeout>=2.2",
     "pybind11>=2.12",
     "ruff>=0.5",
+    "hypothesis>=6.100",
 ]
 
 [project.scripts]

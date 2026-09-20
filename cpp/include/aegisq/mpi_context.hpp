@@ -36,6 +36,15 @@ struct MpiAmplitudeType<float> {
 };
 #endif
 
+/// Largest number of amplitudes handed to a single MPI call.
+///
+/// MPI element counts are `int`-typed, so a shard bigger than that must be
+/// split. The limit is adjustable at runtime for one reason: at its natural
+/// value the splitting path needs a 4 GiB shard to trigger, so it would never
+/// be exercised by a test and would rot silently.
+std::size_t max_exchange_elements();
+void set_max_exchange_elements(std::size_t count);
+
 class MpiContext {
   public:
     /// Lazily initialise MPI (if compiled in) and return the process-wide context.

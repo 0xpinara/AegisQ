@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 import aegisq
@@ -13,8 +15,24 @@ import aegisq
 AMPLITUDE_TOL = 1e-10
 
 
+#: Hypothesis budgets. The default keeps the developer loop under a few
+#: seconds; `deep` is for CI and for deliberate bug hunts, and is roughly
+#: thirty times the search.
+_HYPOTHESIS_PROFILES = {"default": 60, "deep": 2000, "quick": 15}
+
+
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "native: requires the compiled C++ core")
+
+    try:
+        from hypothesis import settings as hypothesis_settings
+    except ImportError:  # pragma: no cover - property tests skip without it
+        return
+    for name, examples in _HYPOTHESIS_PROFILES.items():
+        hypothesis_settings.register_profile(
+            name, max_examples=examples, deadline=None, print_blob=True
+        )
+    hypothesis_settings.load_profile(os.environ.get("AEGISQ_HYPOTHESIS_PROFILE", "default"))
 
 
 @pytest.fixture(scope="session")

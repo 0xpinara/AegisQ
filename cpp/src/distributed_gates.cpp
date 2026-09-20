@@ -295,10 +295,11 @@ void DistributedStateVectorT<Real>::exchange_with_partner(int partner, const Amp
     const auto started = std::chrono::steady_clock::now();
     // MPI element counts are int-typed. Shards larger than that are split into
     // chunks rather than silently overflowing.
-    constexpr std::size_t kMaxChunk = 1ULL << 28;
+    const std::size_t max_chunk = max_exchange_elements();
     std::size_t offset = 0;
+    std::uint64_t messages = 0;
     while (offset < count) {
-        const std::size_t chunk = std::min(kMaxChunk, count - offset);
+        const std::size_t chunk = std::min(max_chunk, count - offset);
         const int status = MPI_Sendrecv(
             send + offset, static_cast<int>(chunk), MpiAmplitudeType<Real>::value(), partner, 0,
             receive + offset, static_cast<int>(chunk), MpiAmplitudeType<Real>::value(), partner, 0,
@@ -307,11 +308,12 @@ void DistributedStateVectorT<Real>::exchange_with_partner(int partner, const Amp
             throw std::runtime_error("MPI_Sendrecv failed during a shard exchange");
         }
         offset += chunk;
+        ++messages;
     }
 
     const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - started;
     const std::size_t bytes = count * MpiAmplitudeType<Real>::bytes;
-    profiler_.record_exchange(current_opcode_, bytes, bytes, elapsed.count());
+    profiler_.record_exchange(current_opcode_, bytes, bytes, elapsed.count(), messages);
     current_gate_communicated_ = true;
 #else
     (void)partner;
@@ -546,32 +548,38 @@ CommunicationMetrics DistributedStateVectorT<Real>::reduced_metrics() const {
                       MpiContext::instance().comm());
 
         if (min_keys == max_keys && local_keys > 0) {
+            // Keep this in step with GateCommunication: every counter in that
+            // struct must be reduced, or a rank-local value would be reported
+            // beside world-summed ones.
+            constexpr std::size_t kPerOpcodeCounters = 5;
             const std::size_t k = reduced.per_opcode.size();
-            std::vector<std::uint64_t> counters(4 * k, 0);
+            std::vector<std::uint64_t> counters(kPerOpcodeCounters * k, 0);
             std::vector<double> seconds(k, 0.0);
             std::size_t index = 0;
             for (const auto& [name, stats] : reduced.per_opcode) {
-                counters[4 * index + 0] = stats.gates;
-                counters[4 * index + 1] = stats.exchanges;
-                counters[4 * index + 2] = stats.bytes_sent;
-                counters[4 * index + 3] = stats.bytes_received;
+                counters[kPerOpcodeCounters * index + 0] = stats.gates;
+                counters[kPerOpcodeCounters * index + 1] = stats.exchanges;
+                counters[kPerOpcodeCounters * index + 2] = stats.messages;
+                counters[kPerOpcodeCounters * index + 3] = stats.bytes_sent;
+                counters[kPerOpcodeCounters * index + 4] = stats.bytes_received;
                 seconds[index] = stats.communication_seconds;
                 ++index;
             }
 
-            std::vector<std::uint64_t> summed(4 * k, 0);
+            std::vector<std::uint64_t> summed(kPerOpcodeCounters * k, 0);
             std::vector<double> slowest_per_opcode(k, 0.0);
-            MPI_Allreduce(counters.data(), summed.data(), static_cast<int>(4 * k), MPI_UINT64_T,
-                          MPI_SUM, MpiContext::instance().comm());
+            MPI_Allreduce(counters.data(), summed.data(), static_cast<int>(kPerOpcodeCounters * k),
+                          MPI_UINT64_T, MPI_SUM, MpiContext::instance().comm());
             MPI_Allreduce(seconds.data(), slowest_per_opcode.data(), static_cast<int>(k),
                           MPI_DOUBLE, MPI_MAX, MpiContext::instance().comm());
 
             index = 0;
             for (auto& [name, stats] : reduced.per_opcode) {
-                stats.gates = summed[4 * index + 0];
-                stats.exchanges = summed[4 * index + 1];
-                stats.bytes_sent = summed[4 * index + 2];
-                stats.bytes_received = summed[4 * index + 3];
+                stats.gates = summed[kPerOpcodeCounters * index + 0];
+                stats.exchanges = summed[kPerOpcodeCounters * index + 1];
+                stats.messages = summed[kPerOpcodeCounters * index + 2];
+                stats.bytes_sent = summed[kPerOpcodeCounters * index + 3];
+                stats.bytes_received = summed[kPerOpcodeCounters * index + 4];
                 stats.communication_seconds = slowest_per_opcode[index];
                 ++index;
             }

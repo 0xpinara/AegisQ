@@ -108,6 +108,7 @@ py::dict metrics_to_dict(const aegisq::CommunicationMetrics& m) {
         py::dict entry;
         entry["gates"] = stats.gates;
         entry["exchanges"] = stats.exchanges;
+        entry["messages"] = stats.messages;
         entry["bytes_sent"] = stats.bytes_sent;
         entry["bytes_received"] = stats.bytes_received;
         entry["communication_seconds"] = stats.communication_seconds;
@@ -275,6 +276,10 @@ PYBIND11_MODULE(_aegisq_core, m) {
         "mpi_barrier", []() { aegisq::MpiContext::instance().barrier(); },
         "Synchronise all ranks.");
     m.def("mpi_library_version", &aegisq::MpiContext::library_version);
+    m.def("max_exchange_elements", &aegisq::max_exchange_elements,
+          "Largest number of amplitudes handed to one MPI call.");
+    m.def("set_max_exchange_elements", &aegisq::set_max_exchange_elements, py::arg("count"),
+          "Set the per-call element limit; lowering it exercises the chunked path.");
     m.def("mpi_finalize", &aegisq::MpiContext::finalize,
           "Shut MPI down; idempotent and also registered with atexit.");
 

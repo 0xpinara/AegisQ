@@ -192,6 +192,29 @@ def test_probability_distribution_sums_to_one():
     assert state.probabilities([0, 2]).sum() == pytest.approx(1.0)
 
 
+@pytest.mark.parametrize("backend", ["reference", "cpp"])
+def test_shots_are_validated_identically_on_every_backend(backend):
+    """Validation lives in the front end, so the message cannot differ by backend."""
+    circuit = Circuit(2).h(0)
+    with pytest.raises(ValueError, match="shots must be non-negative"):
+        Simulator(backend).run(circuit, shots=-1)
+    with pytest.raises(TypeError, match="shots must be an int"):
+        Simulator(backend).run(circuit, shots=2.5)
+    with pytest.raises(TypeError, match="shots must be an int"):
+        Simulator(backend).run(circuit, shots=True)
+
+
+@pytest.mark.parametrize("backend", ["reference", "cpp"])
+def test_seeds_are_validated(backend):
+    circuit = Circuit(2).h(0)
+    with pytest.raises(ValueError, match="seed must be non-negative"):
+        Simulator(backend).run(circuit, shots=4, seed=-1)
+    with pytest.raises(TypeError, match="seed must be an int"):
+        Simulator(backend).run(circuit, shots=4, seed="hello")
+    # None is allowed and means "unseeded".
+    assert Simulator(backend).run(circuit, shots=4, seed=None).counts
+
+
 def test_unknown_backend_reports_available_ones():
     with pytest.raises(ValueError, match="available: .*reference"):
         Simulator(backend="quantum-teapot")

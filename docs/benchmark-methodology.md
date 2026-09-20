@@ -1,141 +1,125 @@
-# Benchmark methodology
+# Architecture
 
-## The rule
+AegisQ-HPC is organised as four cooperating layers. Each layer is testable in
+isolation, and each one is added by a separate project phase.
 
-Every number in `benchmarks/processed/` and every pixel in
-`benchmarks/plots/` is derived from a raw CSV in `benchmarks/raw/` that was
-written by an actual run of `aegisq.benchmark.runner`. The plotting code reads
-raw data and nothing else: there are no constants describing results anywhere
-in the reporting module.
-
-## What a raw row contains
-
-One row per repeat, carrying its own provenance so a measurement is never
-separated from the machine that produced it:
-
-| Group | Columns |
-|---|---|
-| provenance | timestamp, hostname, cpu_model, logical_cores, os, python_version, compiler, mpi_library, git_commit, git_dirty, aegisq_version |
-| configuration | experiment, circuit_family, circuit_name, qubits, gates, depth, two_qubit_gates, precision, ranks, omp_threads, thread_policy, mapping_strategy, global_qubits, shots, seed, repeat |
-| measurement | wall_seconds, compute_seconds, communication_seconds, bytes_sent, bytes_received, pairwise_exchanges, communicating_gates, local_amplitudes |
-| prediction | predicted_bytes, predicted_exchanges |
-
-The prediction columns sit beside the measurement so the cost model can be
-audited rather than trusted.
-
-## Statistics
-
-- Each configuration runs a **warm-up repeat that is discarded**: the first
-  touch of a fresh shard pays page-fault and allocation costs that say nothing
-  about the steady-state cost of the circuit.
-- The headline figure is the **minimum** wall time across repeats. On a shared
-  machine the least-contended observation is the most reproducible one.
-- The median and the spread (max − min) are reported alongside it, so a noisy
-  measurement is visible as a noisy measurement.
-
-## Thread policy — and why it is a column
-
-On a single node, how many threads each rank gets changes what the experiment
-*means*. The suite records the policy explicitly and never mixes policies in
-one table:
-
-| Policy | Setup | Question it answers |
-|---|---|---|
-| `one-thread-per-rank` | one thread per rank; total cores grow with the rank count | classic strong/weak scaling: does adding processors help? |
-| `fixed-total-cores` | `ranks x threads` held at the core count | at constant hardware, what does partitioning cost? |
-
-Reporting a "speedup" from the second policy as if it were the first is one of
-the easier ways to publish a misleading scaling curve. Both are measured here
-and labelled.
-
-## Definitions
-
-- **Strong scaling**: fixed circuit, growing rank count. Speedup is
-  `T(1) / T(P)`; efficiency is `speedup / P`.
-- **Weak scaling**: the problem grows with the rank count — one extra qubit per
-  doubling — so each rank keeps `2^(n-p)` amplitudes. Ideal behaviour is
-  constant wall time.
-- **Communication volume**: payload bytes handed to MPI, summed over ranks.
-- **Communication time**: seconds spent inside those calls, reported for the
-  slowest rank.
-
-## Reproducing a figure
-
-```bash
-aegisq benchmark mapping --circuits ghz,qft,ising,random,grover \
-    --qubits 20 --ranks 2,4,8 --repeats 3 --option grover:iterations=2
-aegisq benchmark strong --circuit qft --qubits 22 --ranks 1,2,4,8 \
-    --thread-policy one-thread-per-rank
-aegisq benchmark weak --circuit ising --qubits 20 --ranks 1,2,4,8 \
-    --thread-policy one-thread-per-rank
-aegisq benchmark report
+```
+                    ┌─────────────────────────────┐
+                    │        AegisQ client        │
+                    │  circuit builder / OpenQASM │
+                    │  ML-DSA job signature       │
+                    │  ML-KEM session setup       │
+                    │  AES-256-GCM encryption     │
+                    └──────────────┬──────────────┘
+                                   │  encrypted .aqjob
+                                   ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                           HPC cluster                            │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │ Secure job loader: ML-DSA verify → replay check →          │  │
+│  │ ML-KEM decapsulate → AES-GCM decrypt → circuit hash check  │  │
+│  └───────────────────────────┬────────────────────────────────┘  │
+│                              ▼                                   │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │ Communication-aware compiler                               │  │
+│  │ circuit IR → cost model → qubit placement → schedule       │  │
+│  └───────────────────────────┬────────────────────────────────┘  │
+│                              ▼                                   │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │ Distributed runtime (C++20 / MPI / OpenMP)                 │  │
+│  │ rank 0 shard │ rank 1 shard │ rank 2 shard │ rank 3 shard  │  │
+│  │         ↔ instrumented MPI pairwise exchange ↔             │  │
+│  └───────────────────────────┬────────────────────────────────┘  │
+│                              ▼                                   │
+│           metrics + result + Merkle root + ML-DSA signature      │
+└──────────────────────────────┬───────────────────────────────────┘
+                               ▼
+                      aegisq verify-result
 ```
 
-Each sweep launches one `mpirun` per configuration, because the world size is
-fixed when `mpirun` starts.
+## Layer responsibilities
 
-## What "measured communication" means
+| Layer | Module | Responsibility |
+|---|---|---|
+| Front end | `aegisq.circuit` | gate/circuit IR, validation, OpenQASM subset parsing |
+| Reference | `aegisq.runtime.reference` | readable NumPy simulator used as the correctness oracle |
+| Native core | `cpp/` | single-process and distributed state-vector kernels |
+| Compiler | `aegisq.compiler` | analytical communication cost model and qubit placement |
+| Security | `aegisq.secure` | ML-KEM / ML-DSA job envelopes, replay protection |
+| Provenance | `aegisq.provenance` | hashing, Merkle trees, signed execution manifests |
+| Measurement | `aegisq.benchmark` | scaling sweeps, raw CSV capture, plotting from raw data |
 
-Every byte reported by AegisQ is a byte the runtime handed to MPI. The
-counters live in `CommunicationProfiler` and are incremented inside the same
-function that issues the transfer, so a code path cannot move data without
-being counted.
+## Design rules
 
-Counted:
+1. The Python layer orchestrates; the C++ layer computes. No amplitude loop
+   lives in Python outside the deliberately simple reference backend.
+2. Every byte moved by the project over MPI passes through an instrumented
+   wrapper, so reported communication volume is measured rather than modelled.
+3. Optional components (MPI, OpenMP, liboqs, Qiskit, CUDA) degrade gracefully:
+   the package imports and `aegisq doctor` still runs without them.
 
-- payload bytes of every `MPI_Sendrecv` issued by the runtime, in both
-  directions,
-- the number of pairwise exchanges, and which opcode caused each one,
-- wall time spent inside those calls,
-- collective calls (`MPI_Allreduce` for the norm, `MPI_Allgather` for the
-  test-only gather).
+## Native core layout
 
-Not counted:
+| File | Contents |
+|---|---|
+| `cpp/include/aegisq/gate.hpp` | opcode enum, gate struct, arity/diagonal/control metadata |
+| `cpp/include/aegisq/kernels.hpp` | templated local kernels shared by single-process and distributed execution |
+| `cpp/include/aegisq/statevector.hpp` | `StateVectorT<Real>`, instantiated for `double` and `float` |
+| `cpp/include/aegisq/measurement.hpp` | partition-independent shot sampler |
+| `cpp/src/bindings.cpp` | pybind11 surface |
 
-- MPI's own protocol and envelope overhead,
-- traffic MPI generates internally to implement a collective,
-- anything that happens below the MPI interface (NIC, shared memory copies).
+The kernels are templated on the amplitude type and addressed by *local*
+qubit index. The distributed runtime hands each rank its own shard and calls
+exactly these kernels for every gate that needs no communication, so the two
+execution modes share one arithmetic implementation.
 
-Reported byte counts are therefore a lower bound on wire traffic and an exact
-account of what the algorithm asked for. That is the quantity the qubit
-placement actually controls.
+### Sampling is independent of the rank count
 
-### Local versus world-reduced counters
+`measure_all` draws `shots` uniform values in `[0, total_probability)` from a
+seeded MT19937-64, sorts them once, and then walks the local amplitudes
+accumulating probability mass; a rank claims only the draws inside its own
+interval. Because the draw sequence depends on `(shots, seed)` alone, the same
+circuit sampled on 1, 2 or 8 ranks yields identical counts.
 
-`metrics()` reports one rank. `reduced_metrics()` reports the world:
+The reference (NumPy) backend uses `Generator.multinomial` and therefore
+produces a *different* — but equally reproducible — stream for the same seed.
+Counts are compared across backends statistically; state vectors are compared
+exactly.
 
-- byte counts and call counts are **summed**, because the question is how much
-  traffic the job generated in total;
-- wall times are **maximised**, because a distributed run finishes when its
-  slowest rank finishes.
+## Circuit input: a documented OpenQASM subset
 
-### Verified byte accounting
+`aegisq.circuit.qasm` parses the part of OpenQASM that maps directly onto the
+AegisQ instruction set. It is **not** a complete OpenQASM implementation.
 
-The MPI test suite asserts closed-form byte counts for every placement — for
-example, a single Hadamard on a global qubit moves exactly one full state
-vector's worth of bytes summed over ranks (`2^n · 16` for fp64), and a `CX`
-with a local control and a global target moves exactly half of that. These are
-assertions, not documentation: an optimisation that changes the traffic
-pattern has to change the expectations too.
+Accepted:
 
-## Post-quantum measurements
+| Construct | Forms |
+|---|---|
+| version header | `OPENQASM 2.0;`, `OPENQASM 3;` (optional) |
+| include | `include "qelib1.inc";` (accepted, ignored) |
+| quantum register | `qreg q[n];`, `qubit[n] q;` — exactly one per circuit |
+| classical register | `creg c[n];`, `bit[n] c;` (accepted, ignored) |
+| gates | `x y z h s t` · `rx(theta) ry(theta) rz(theta)` · `cx cz swap` |
+| parameters | numbers, `pi`, `pi/4`, `2*pi`, `3*pi/8`, `1e-3` |
+| measurement | `measure q[i] -> c[i];`, `c[i] = measure q[i];`, `measure q[i];` |
+| barrier | `barrier q;` (accepted, ignored) |
+| comments | `//` and `/* ... */` |
 
-`aegisq benchmark pqc` measures two different things, and the distinction
-matters for how the results are read:
+Rejected, with a line number and a reason:
 
-- **Primitive cost** — `keygen`, `encapsulate`, `decapsulate`, `sign` and
-  `verify` for all three ML-KEM and ML-DSA parameter sets, timed over many
-  iterations with the **median** reported. Sizes are exact, not measured.
-- **End-to-end cost** — the wall time to pack a real job bundle and to verify,
-  decrypt and open it, and the bytes the envelope adds.
+- any gate outside the instruction set (including `ccx`/`toffoli`),
+- custom `gate` definitions, `if`, loops and any construct with a body,
+- `reset`, multiple quantum registers, register-wide gate application,
+- unparseable parameter expressions.
 
-The end-to-end figure is much larger than the sum of the primitives, and that
-gap is the interesting part: most of it is canonical JSON serialisation and
-base64 encoding of the circuit, not lattice arithmetic. The size accounting
-separates the three contributions — plaintext payload, base64 expansion, and
-the fixed cryptographic overhead (KEM ciphertext, signature, header, AEAD tag)
-— so a reader can see which one an optimisation would need to target.
+Identifiers are **case-sensitive**, as in the OpenQASM specification: `H` is
+not accepted as a spelling of `h`. The error says so and names the lowercase
+form, rather than quietly accepting one case for gate names while rejecting it
+for declaration keywords.
 
-Primitive timings depend on the liboqs build (compiler flags, AVX2/NEON
-availability), so the liboqs version is recorded in every row alongside the
-CPU.
+Rejecting is the point. A silently ignored instruction would produce a wrong
+state and a benchmark that looks perfectly reasonable.
+
+`to_qasm(circuit)` emits the same subset, and a roundtrip test asserts that
+parsing the emitted text reproduces the original instruction list and the same
+simulated state.

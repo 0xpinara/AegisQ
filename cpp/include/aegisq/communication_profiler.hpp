@@ -25,14 +25,20 @@ namespace aegisq {
 struct GateCommunication {
     std::uint64_t gates{0};
     std::uint64_t exchanges{0};
+    std::uint64_t messages{0};
     std::uint64_t bytes_sent{0};
     std::uint64_t bytes_received{0};
     double communication_seconds{0.0};
 };
 
 struct CommunicationMetrics {
+    /// Physical MPI calls issued. A single logical exchange becomes several
+    /// of these when the shard exceeds the per-call element limit.
     std::uint64_t send_calls{0};
     std::uint64_t receive_calls{0};
+
+    /// Logical shard exchanges, independent of how they were chunked. This is
+    /// the quantity the communication cost model predicts.
     std::uint64_t pairwise_exchanges{0};
 
     std::uint64_t bytes_sent{0};
@@ -55,9 +61,9 @@ struct CommunicationMetrics {
 
 class CommunicationProfiler {
   public:
-    /// Record one symmetric pairwise exchange (a send and a receive).
+    /// Record one logical pairwise exchange, split into `messages` MPI calls.
     void record_exchange(OpCode opcode, std::size_t bytes_sent, std::size_t bytes_received,
-                         double seconds);
+                         double seconds, std::uint64_t messages = 1);
 
     /// Record a collective. `kind` is one of "allreduce", "allgather", "barrier".
     void record_collective(const char* kind, double seconds);
