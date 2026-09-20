@@ -60,6 +60,8 @@ RAW_FIELDS = [
     "omp_threads",
     "thread_policy",
     "mapping_strategy",
+    "fusion",
+    "gates_before_fusion",
     "global_qubits",
     "shots",
     "seed",
@@ -88,6 +90,7 @@ class BenchmarkConfig:
     experiment: str = "adhoc"
     precision: str = "fp64"
     mapping_strategy: str = "default"
+    fusion: bool = False
     shots: int = 0
     seed: int = 42
     repeats: int = 3
@@ -172,6 +175,12 @@ def measure(config: BenchmarkConfig) -> list[dict[str, Any]]:
     from aegisq.runtime.distributed import is_distributed, preferred_backend, rank, world_size
 
     circuit = build_circuit(config)
+    gates_before_fusion = len(circuit)
+    if config.fusion:
+        from aegisq.compiler import fuse
+
+        circuit = fuse(circuit)
+
     ranks = world_size()
     backend = preferred_backend()
 
@@ -222,6 +231,8 @@ def measure(config: BenchmarkConfig) -> list[dict[str, Any]]:
                 "omp_threads": _threads_in_force(),
                 "thread_policy": config.thread_policy,
                 "mapping_strategy": config.mapping_strategy,
+                "fusion": "on" if config.fusion else "off",
+                "gates_before_fusion": gates_before_fusion,
                 "global_qubits": " ".join(str(q) for q in global_qubits),
                 "shots": config.shots,
                 "seed": config.seed,
@@ -276,6 +287,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--experiment", default="adhoc")
     parser.add_argument("--precision", choices=("fp64", "fp32"), default="fp64")
     parser.add_argument("--mapping", choices=("default", "optimized"), default="default")
+    parser.add_argument(
+        "--fuse", action="store_true", help="fuse single-qubit runs before executing"
+    )
     parser.add_argument("--shots", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--repeats", type=int, default=3)
@@ -322,6 +336,7 @@ def main(argv: list[str] | None = None) -> int:
         experiment=args.experiment,
         precision=args.precision,
         mapping_strategy=args.mapping,
+        fusion=args.fuse,
         shots=args.shots,
         seed=args.seed,
         repeats=args.repeats,
@@ -342,7 +357,8 @@ def main(argv: list[str] | None = None) -> int:
         best = min(row["wall_seconds"] for row in rows)
         print(
             f"{config.circuit_family} n={rows[0]['qubits']} ranks={rows[0]['ranks']} "
-            f"{config.mapping_strategy}: best {best * 1000:.1f} ms, "
+            f"{config.mapping_strategy}"
+            f"{'+fusion' if config.fusion else ''}: best {best * 1000:.1f} ms, "
             f"{rows[0]['bytes_sent'] / 2**20:.2f} MiB sent -> {output}"
         )
     return 0

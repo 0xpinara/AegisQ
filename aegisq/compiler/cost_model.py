@@ -151,7 +151,10 @@ class CommunicationCostModel:
         spec = GATE_SPECS[gate.opcode]
 
         # Diagonal gates scale amplitudes in place: never any communication.
-        if spec.diagonal:
+        # `gate.is_diagonal` rather than `spec.diagonal`, because a fused gate
+        # is diagonal or not depending on its matrix, and a fused run of rz/s/z
+        # must keep the zero-communication status it had before fusion.
+        if gate.is_diagonal:
             return GateCost()
 
         if spec.num_qubits == 1:
@@ -308,7 +311,7 @@ class CircuitCostProfile:
 
         for gate in circuit:
             spec = GATE_SPECS[gate.opcode]
-            if spec.diagonal:
+            if gate.is_diagonal:
                 continue
             if spec.num_qubits == 1:
                 nondiagonal[gate.qubits[0]] += 1

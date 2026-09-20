@@ -7,6 +7,8 @@ to diagnose than one rejected at construction time.
 
 from __future__ import annotations
 
+import math
+
 from aegisq.circuit.gates import GATE_SPECS, SUPPORTED_OPCODES, Gate
 
 
@@ -56,5 +58,20 @@ def validate_gate(gate: Gate, num_qubits: int) -> Gate:
     for p in gate.params:
         if not isinstance(p, (int, float)) or isinstance(p, bool):
             raise CircuitError(f"gate parameter must be a real number, got {p!r} in {gate}")
+        if not math.isfinite(float(p)):
+            raise CircuitError(f"gate parameter must be finite, got {p!r} in {gate}")
 
-    return Gate(opcode, tuple(int(q) for q in gate.qubits), tuple(float(p) for p in gate.params))
+    validated = Gate(
+        opcode, tuple(int(q) for q in gate.qubits), tuple(float(p) for p in gate.params)
+    )
+
+    if opcode == "u":
+        # A fused gate carries a raw matrix, so nothing else checks that it is
+        # actually a unitary. An unphysical one would quietly break norm
+        # conservation and every comparison that depends on it.
+        from aegisq.circuit.gates import is_unitary, single_qubit_matrix
+
+        if not is_unitary(single_qubit_matrix(validated)):
+            raise CircuitError(f"fused gate matrix is not unitary: {validated}")
+
+    return validated

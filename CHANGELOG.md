@@ -7,6 +7,19 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Gate fusion** (`aegisq.compiler.fusion`): consecutive single-qubit gates
+  are multiplied into one unitary, so a run on a global qubit costs one shard
+  exchange instead of one per gate. Exact including global phase, never
+  increases communication, and a fused run of diagonal gates stays diagonal
+  and therefore free.
+- A `u` opcode carrying an arbitrary single-qubit unitary as its four complex
+  entries. Diagonality is determined per instruction rather than per opcode,
+  in both the Python and C++ layers. It is an internal representation with no
+  OpenQASM form, and the emitter says so rather than writing something lossy.
+- Measured 2x2 experiment over placement and fusion (`--levers
+  placement,fusion`), with a table and plot. The levers are not additive: for
+  random circuits, fusion alone removes 8.2%, placement alone 38.8%, and the
+  combination 53.1%, because fusing changes which placement is best.
 - Property-based tests (Hypothesis) covering backend agreement, norm
   preservation, circuit and QASM round trips, the optimiser's fast scorer,
   canonical serialisation and Merkle audit paths. Budgets are profile-driven:

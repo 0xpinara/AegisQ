@@ -28,7 +28,8 @@ of several machines. Partitioning turns some quantum gates into network
 operations, and which gates depends entirely on an arbitrary choice: which
 logical qubits are assigned to the bits of the basis index that select a rank.
 We present AegisQ-HPC, a distributed state-vector simulator that makes this
-choice deliberately. Every byte the runtime hands to MPI is instrumented, an
+choice deliberately, and pairs it with a gate-fusion pass that reduces how
+often the remaining communicating gates fire. Every byte the runtime hands to MPI is instrumented, an
 analytical cost model predicts that traffic from the circuit structure, and a
 search over qubit placements minimises it. On a single 8-core host with
 shared-memory MPI, communication-aware placement removes $87.2\%$ of measured
@@ -127,8 +128,8 @@ AegisQ-HPC is four cooperating layers.
   ignored.
 \item A \textbf{native core} in C++20: local kernels shared by single-process
   and distributed execution, an MPI runtime, and a communication profiler.
-\item A \textbf{compiler} comprising an analytical communication cost model and
-  a placement search.
+\item A \textbf{compiler} comprising an analytical communication cost model, a
+  placement search and a gate-fusion pass.
 \item A \textbf{security layer} providing ML-KEM/ML-DSA job envelopes and
   signed, Merkle-committed result provenance.
 \end{enumerate}
@@ -320,6 +321,32 @@ socket, where a ``transfer'' is a memory copy.
 The cost model predicted the byte count and the message count \emph{exactly} in
 all 42 distributed configurations measured.
 
+\subsection{A second lever: gate fusion}
+
+Placement decides which gates communicate; it cannot reduce how often a given
+qubit is acted on. A run of consecutive single-qubit gates on a global qubit
+costs one whole-shard exchange \emph{per gate}, although the run's product is
+a single $2\times2$ matrix. Multiplying the run out before execution replaces
+those exchanges with one.
+
+We carry the fused matrix in full rather than as Euler angles. There is no
+hardware target to compile for, and the explicit form is exact including the
+global phase, so fused and unfused circuits are compared amplitude by
+amplitude rather than through a fidelity. Two further properties are checked
+by property-based tests over arbitrary circuits: fusion never increases
+predicted communication, and a run of diagonal gates fuses into a diagonal
+matrix that the runtime and the cost model both still recognise as free --- a
+fused gate is classified by inspecting its matrix, not its opcode.
+
+\input{tables/levers.tex}
+
+Table~\ref{tab:levers} gives the measured $2\times2$. The levers are not
+additive. For random circuits fusion alone removes $8.2\%$ of traffic and
+placement alone $38.8\%$, while the combination removes $53.1\%$: fusing
+changes the cost landscape, so the placement search that follows finds a
+different and better assignment. For the QFT, whose single-qubit runs are
+already short, fusion contributes nothing and placement does all the work.
+
 \input{tables/strong_scaling.tex}
 
 Table~\ref{tab:strong} gives strong scaling with one thread per rank. Efficiency
@@ -395,7 +422,9 @@ the machinery to decide. \emph{Cluster measurements}: the same experiments on
 multiple nodes, where communication is a network rather than a memory copy and
 the byte reductions reported here should translate into larger time reductions.
 \emph{Topology awareness}: extending the cost model beyond byte counts to
-account for the interconnect a job is actually running on.
+account for the interconnect a job is actually running on. The measured
+interaction between placement and fusion also suggests that the two should be
+searched jointly rather than applied in sequence.
 
 \section{Conclusion}
 

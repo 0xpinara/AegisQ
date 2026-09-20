@@ -40,6 +40,12 @@ from aegisq.circuit.circuit import Circuit
 from aegisq.circuit.gates import GATE_SPECS
 from aegisq.circuit.validation import CircuitError
 
+#: Opcodes the OpenQASM front end handles. The fused `u` gate is deliberately
+#: excluded: it carries a raw matrix, and OpenQASM 2.0 has no way to express
+#: one without losing the global phase. Emitting it silently would be exactly
+#: the kind of quiet reinterpretation this parser exists to refuse.
+QASM_OPCODES = tuple(opcode for opcode in GATE_SPECS if opcode != "u")
+
 
 class QasmError(CircuitError):
     """Raised when a QASM source uses something outside the supported subset."""
@@ -255,6 +261,13 @@ def _apply_gate_statement(
         raise QasmError(f"cannot parse statement {statement!r}", number, statement)
 
     opcode = match.group("name")
+    if opcode == "u":
+        raise QasmError(
+            "the fused 'u' gate is an internal representation and has no OpenQASM "
+            "form; parse the unfused circuit instead",
+            number,
+            statement,
+        )
     if opcode not in GATE_SPECS:
         # OpenQASM identifiers are case-sensitive, and so are the declaration
         # keywords this parser already rejects when capitalised. Accepting
@@ -267,8 +280,8 @@ def _apply_gate_statement(
                 statement,
             )
         raise QasmError(
-            f"gate {opcode!r} is outside the AegisQ instruction set "
-            f"({', '.join(sorted(GATE_SPECS))})",
+            f"gate {opcode!r} is outside the OpenQASM subset AegisQ accepts "
+            f"({', '.join(sorted(QASM_OPCODES))})",
             number,
             statement,
         )
@@ -320,6 +333,12 @@ def to_qasm(circuit: Circuit, version: str = "2.0") -> str:
         lines += ["OPENQASM 3;", f"qubit[{circuit.num_qubits}] q;"]
         if circuit.measured_qubits:
             lines.append(f"bit[{circuit.num_qubits}] c;")
+
+    if any(gate.opcode == "u" for gate in circuit):
+        raise ValueError(
+            "circuit contains fused 'u' gates, which have no OpenQASM representation; "
+            "emit the circuit before fusing it"
+        )
 
     for gate in circuit:
         operands = ", ".join(f"q[{q}]" for q in gate.qubits)

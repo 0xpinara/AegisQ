@@ -79,6 +79,55 @@ def build_block() -> str:
         lines.append("![Communication-aware placement](benchmarks/plots/mapping_comparison.png)")
         lines.append("")
 
+    levers = report_module.lever_table(data)
+    if not levers.empty and not levers["both_bytes"].isna().all():
+        import pandas as pd
+
+        interesting = levers[levers["ranks"] == levers["ranks"].max()]
+        lines.append("### Two levers on the same problem")
+        lines.append("")
+        lines.append(
+            "Qubit placement decides *which* gates communicate; gate fusion decides "
+            "*how many times*. Measured separately and together, at "
+            f"{int(interesting['ranks'].iloc[0])} ranks:"
+        )
+        lines.append("")
+        lines.append("| circuit | baseline MPI bytes | fusion only | placement only | both |")
+        lines.append("|---|---:|---:|---:|---:|")
+
+        def percent(value):
+            return "—" if value is None or pd.isna(value) else f"{value * 100:.1f}%"
+
+        for row in interesting.sort_values("both_reduction", ascending=False).itertuples():
+            lines.append(
+                f"| {row.circuit_family} | {row.baseline_bytes:,} | "
+                f"{percent(row.fusion_only_reduction)} | "
+                f"{percent(row.placement_only_reduction)} | "
+                f"**{percent(row.both_reduction)}** |"
+            )
+        lines.append("")
+
+        combined = interesting.dropna(subset=["both_reduction"])
+        non_additive = combined[
+            combined["both_reduction"]
+            > combined["fusion_only_reduction"].fillna(0)
+            + combined["placement_only_reduction"].fillna(0)
+            + 0.01
+        ]
+        if not non_additive.empty:
+            example = non_additive.iloc[0]
+            lines.append(
+                "The levers are not independent. For "
+                f"`{example['circuit_family']}` the combination removes "
+                f"{example['both_reduction'] * 100:.1f}% where the two separately remove "
+                f"{example['fusion_only_reduction'] * 100:.1f}% and "
+                f"{example['placement_only_reduction'] * 100:.1f}% — fusing first changes "
+                "which placement is best, so the search finds a better one."
+            )
+            lines.append("")
+        lines.append("![Optimisation levers](benchmarks/plots/lever_comparison.png)")
+        lines.append("")
+
     if not strong.empty:
         classic = strong[strong["thread_policy"] == "one-thread-per-rank"]
         if not classic.empty:
@@ -263,6 +312,33 @@ def write_paper_tables() -> list[Path]:
             rows,
             "Strong scaling with one thread per rank.",
             "tab:strong",
+        )
+
+    levers = report_module.lever_table(data)
+    if not levers.empty and not levers["both_bytes"].isna().all():
+        import pandas as pd
+
+        subset = levers[levers["ranks"] == levers["ranks"].max()].sort_values(
+            "both_reduction", ascending=False
+        )
+
+        def cell(value):
+            return "--" if value is None or pd.isna(value) else f"{value * 100:.1f}\\%"
+
+        rows = [
+            f"{row.circuit_family} & {row.baseline_bytes / 2**20:.0f} & "
+            f"{cell(row.fusion_only_reduction)} & {cell(row.placement_only_reduction)} & "
+            f"{cell(row.both_reduction)} \\\\"
+            for row in subset.itertuples()
+        ]
+        emit(
+            "levers.tex",
+            "\\begin{tabular}{lrrrr}\n\\toprule\nCircuit & Baseline (MiB) & Fusion only & "
+            "Placement only & Both \\\\\n\\midrule",
+            rows,
+            f"Measured reduction in MPI traffic from each optimisation lever at "
+            f"{int(subset['ranks'].iloc[0])} ranks, {int(subset['qubits'].iloc[0])} qubits.",
+            "tab:levers",
         )
 
     primitives = report_module.pqc_table(report_module.load_pqc())

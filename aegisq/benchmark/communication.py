@@ -39,30 +39,42 @@ def mapping_experiment(
     seed: int = 42,
     options: dict[str, list[str]] | None = None,
     thread_policy: str = "fixed-total-cores",
+    levers: tuple[str, ...] = ("placement",),
     verbose: bool = True,
 ) -> list[LaunchResult]:
-    """Run every (family, rank count, mapping) combination."""
+    """Run every combination of the requested optimisation levers.
+
+    `levers` selects which dimensions are swept. `("placement",)` reproduces
+    the original experiment; `("placement", "fusion")` gives the full 2x2,
+    which is what shows whether the two levers are independent or overlap.
+    """
     options = options or {}
     results: list[LaunchResult] = []
 
+    mappings = ("default", "optimized") if "placement" in levers else ("default",)
+    fusions = (False, True) if "fusion" in levers else (False,)
+
     for family in families:
         for count in ranks:
-            for mapping in ("default", "optimized"):
-                args = _runner_args(
-                    family,
-                    qubits,
-                    "mapping_comparison",
-                    precision,
-                    mapping,
-                    repeats,
-                    shots,
-                    seed,
-                    output,
-                    options.get(family),
-                    thread_policy,
-                )
-                result = launch(count, args, threads=resolve_threads(count, thread_policy))
-                if verbose:
-                    _echo(result, f"mapping {family} n={qubits} ranks={count} {mapping}")
-                results.append(result)
+            for mapping in mappings:
+                for fusion in fusions:
+                    args = _runner_args(
+                        family,
+                        qubits,
+                        "mapping_comparison",
+                        precision,
+                        mapping,
+                        repeats,
+                        shots,
+                        seed,
+                        output,
+                        options.get(family),
+                        thread_policy,
+                        fusion,
+                    )
+                    result = launch(count, args, threads=resolve_threads(count, thread_policy))
+                    if verbose:
+                        label = f"{mapping}{'+fusion' if fusion else ''}"
+                        _echo(result, f"levers {family} n={qubits} ranks={count} {label}")
+                    results.append(result)
     return results

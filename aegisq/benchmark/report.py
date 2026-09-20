@@ -32,6 +32,7 @@ CONFIG_KEYS = [
     "precision",
     "ranks",
     "mapping_strategy",
+    "fusion",
     "thread_policy",
 ]
 
@@ -52,11 +53,42 @@ def load_raw(source: Path | None = None) -> pd.DataFrame:
     data = pd.concat(frames, ignore_index=True)
     if data.empty:
         raise ValueError(f"raw measurement files under {source} contain no rows")
+
+    return normalise(data)
+
+
+#: Columns added to the raw schema after the first measurements were taken,
+#: with the value that older rows should be read as having.
+SCHEMA_DEFAULTS = {
+    "fusion": "off",
+    "thread_policy": "unspecified",
+    "gates_before_fusion": 0,
+}
+
+
+def normalise(data: pd.DataFrame) -> pd.DataFrame:
+    """Fill in columns that older raw files predate.
+
+    Raw files are append-only and the schema grows, so a table built from a
+    mix of old and new rows must decide what the old ones meant. A missing
+    value in a grouping key is worse than a wrong one: pandas drops the whole
+    row, so a measurement would vanish from every table without a word.
+
+    Applied by `load_raw` and again by each table builder, so a frame that
+    arrived by another route is handled the same way.
+    """
+    data = data.copy()
+    for column, default in SCHEMA_DEFAULTS.items():
+        if column not in data.columns:
+            data[column] = default
+        else:
+            data[column] = data[column].fillna(default)
     return data
 
 
 def summarise(data: pd.DataFrame) -> pd.DataFrame:
     """Collapse repeats into one row per configuration."""
+    data = normalise(data)
     grouped = data.groupby(CONFIG_KEYS, as_index=False).agg(
         repeats=("wall_seconds", "count"),
         wall_best=("wall_seconds", "min"),
@@ -83,6 +115,7 @@ def summarise(data: pd.DataFrame) -> pd.DataFrame:
 
 def strong_scaling_table(data: pd.DataFrame) -> pd.DataFrame:
     """Speedup and parallel efficiency relative to the single-rank run."""
+    data = normalise(data)
     subset = summarise(data[data["experiment"] == "strong_scaling"])
     if subset.empty:
         return subset
@@ -118,6 +151,7 @@ def strong_scaling_table(data: pd.DataFrame) -> pd.DataFrame:
 
 def weak_scaling_table(data: pd.DataFrame) -> pd.DataFrame:
     """Wall time as the problem grows with the rank count."""
+    data = normalise(data)
     subset = summarise(data[data["experiment"] == "weak_scaling"])
     if subset.empty:
         return subset
@@ -421,6 +455,117 @@ def plot_search_scaling(table: pd.DataFrame, path: Path, host: str = "") -> Path
     success_ax.legend(fontsize=8, frameon=False, labelcolor=INK_MUTED)
 
     fig.suptitle(f"Grover search, simulated{f' — {host}' if host else ''}", fontsize=12, color=INK)
+    fig.tight_layout()
+    return _save(fig, path)
+
+
+def lever_table(data: pd.DataFrame) -> pd.DataFrame:
+    """Measured traffic for each combination of optimisation levers.
+
+    Rows are (circuit, ranks); columns are the four combinations of qubit
+    placement and gate fusion, so the question "are these two levers
+    independent?" can be read off directly.
+    """
+    data = normalise(data)
+    data = normalise(data)
+    subset = summarise(data[data["experiment"] == "mapping_comparison"])
+    if subset.empty:
+        return subset
+
+    rows = []
+    for (family, qubits, precision, ranks), group in subset.groupby(
+        ["circuit_family", "qubits", "precision", "ranks"]
+    ):
+        indexed = group.set_index(["mapping_strategy", "fusion"])
+
+        def value(mapping: str, fusion: str, column: str, table=indexed):
+            key = (mapping, fusion)
+            if key not in table.index:
+                return None
+            return table.loc[key, column]
+
+        baseline = value("default", "off", "bytes_sent")
+        if baseline is None:
+            continue
+        entry = {
+            "circuit_family": family,
+            "qubits": int(qubits),
+            "precision": precision,
+            "ranks": int(ranks),
+            "baseline_bytes": int(baseline),
+            "baseline_wall_s": float(value("default", "off", "wall_best")),
+        }
+        for label, (mapping, fusion) in {
+            "fusion_only": ("default", "on"),
+            "placement_only": ("optimized", "off"),
+            "both": ("optimized", "on"),
+        }.items():
+            measured = value(mapping, fusion, "bytes_sent")
+            wall = value(mapping, fusion, "wall_best")
+            entry[f"{label}_bytes"] = int(measured) if measured is not None else None
+            entry[f"{label}_wall_s"] = float(wall) if wall is not None else None
+            entry[f"{label}_reduction"] = (
+                (baseline - measured) / baseline if measured is not None and baseline else None
+            )
+        rows.append(entry)
+    return pd.DataFrame(rows)
+
+
+def plot_levers(table: pd.DataFrame, path: Path, host: str = "") -> Path | None:
+    """Traffic under each combination of levers."""
+    if table.empty or "both_bytes" not in table.columns:
+        return None
+    if table["both_bytes"].isna().all():
+        return None
+
+    import numpy as np
+
+    plt = _figure()
+    table = table.sort_values(["circuit_family", "ranks"]).reset_index(drop=True)
+    fig, ax = plt.subplots(figsize=(11, 4.6), facecolor=SURFACE)
+    ax.set_facecolor(SURFACE)
+
+    series = [
+        ("baseline_bytes", "default placement, no fusion", SERIES_COLORS[0]),
+        ("fusion_only_bytes", "fusion only", SERIES_COLORS[1]),
+        ("placement_only_bytes", "placement only", SERIES_COLORS[2]),
+        ("both_bytes", "both", SERIES_COLORS[3]),
+    ]
+    positions = np.arange(len(table), dtype=float)
+    width = 0.8 / len(series)
+
+    for index, (column, label, colour) in enumerate(series):
+        offset = (index - (len(series) - 1) / 2) * width
+        values = [
+            (row / 2**20 if row is not None and not pd.isna(row) else 0.0) for row in table[column]
+        ]
+        ax.bar(
+            positions + offset,
+            values,
+            width * 0.9,
+            color=colour,
+            label=label,
+            edgecolor=SURFACE,
+            linewidth=1.0,
+            zorder=2,
+        )
+
+    ax.set_xticks(positions)
+    ax.set_xticklabels(
+        [f"{row.circuit_family} · {row.ranks}r" for row in table.itertuples()],
+        fontsize=8,
+        rotation=45,
+        ha="right",
+        color=INK_MUTED,
+    )
+    _style_axes(ax, "", "", "MPI bytes sent (MiB, summed over ranks)")
+    ax.grid(axis="x", visible=False)
+    ax.legend(fontsize=8, frameon=False, labelcolor=INK_MUTED)
+    fig.suptitle(
+        f"Placement and fusion, separately and together{f' — {host}' if host else ''}",
+        fontsize=12,
+        color=INK,
+    )
     fig.tight_layout()
     return _save(fig, path)
 
@@ -753,6 +898,14 @@ def write_reports(
         accuracy.to_csv(processed / "prediction_accuracy.csv", index=False)
         written["prediction_accuracy"] = processed / "prediction_accuracy.csv"
 
+    levers = lever_table(data)
+    if not levers.empty and not levers["both_bytes"].isna().all():
+        levers.to_csv(processed / "lever_comparison.csv", index=False)
+        written["lever_comparison"] = processed / "lever_comparison.csv"
+        figure = plot_levers(levers, plots / "lever_comparison.png", host)
+        if figure:
+            written["lever_comparison_plot"] = figure
+
     pqc = load_pqc(raw)
     if not pqc.empty:
         primitives = pqc_table(pqc)
@@ -866,6 +1019,25 @@ def markdown_summary(raw: Path | None = None) -> str:
         for row in envelope.itertuples():
             timing = f"{row.median_us:.0f}" if row.median_us > 0 else "-"
             lines.append(f"| {row.operation} | {timing} | {int(row.bytes)} |")
+        lines.append("")
+
+    levers = lever_table(data)
+    if not levers.empty and not levers["both_bytes"].isna().all():
+        lines.append("## Optimisation levers, separately and together (measured)")
+        lines.append("")
+        lines.append("| circuit | ranks | baseline (MiB) | fusion only | placement only | both |")
+        lines.append("|---|---:|---:|---:|---:|---:|")
+        for row in levers.itertuples():
+
+            def percent(value):
+                return "—" if value is None or pd.isna(value) else f"{value * 100:.1f}%"
+
+            lines.append(
+                f"| {row.circuit_family} | {row.ranks} | {row.baseline_bytes / 2**20:.0f} | "
+                f"{percent(row.fusion_only_reduction)} | "
+                f"{percent(row.placement_only_reduction)} | "
+                f"{percent(row.both_reduction)} |"
+            )
         lines.append("")
 
     search = search_table(load_search(raw))

@@ -90,7 +90,8 @@ def test_barrier_is_accepted_and_ignored():
 @pytest.mark.parametrize(
     "source, message",
     [
-        ("qreg q[2]; toffoli q[0], q[1];", "outside the AegisQ instruction set"),
+        ("qreg q[2]; toffoli q[0], q[1];", "outside the OpenQASM subset"),
+        ("qreg q[2]; u q[0];", "no OpenQASM form"),
         ("h q[0];", "before any quantum register"),
         ("qreg q[2]; h q[7];", "outside the declared register"),
         ("qreg q[2]; rz(alpha) q[0];", "unsupported parameter expression"),

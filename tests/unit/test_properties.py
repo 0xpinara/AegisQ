@@ -34,8 +34,19 @@ from aegisq.secure.canonical import canonical_bytes, canonical_hash, parse_canon
 #: `--hypothesis-profile=deep`.
 SETTINGS = settings(deadline=None)
 
-SINGLE_QUBIT_OPS = [op for op, spec in GATE_SPECS.items() if spec.num_qubits == 1]
+#: `u` is excluded here and generated separately: it is the internal fused
+#: representation, carrying a matrix rather than an angle, so it cannot be
+#: built by the same code path as the primitives.
+SINGLE_QUBIT_OPS = [op for op, spec in GATE_SPECS.items() if spec.num_qubits == 1 and op != "u"]
 TWO_QUBIT_OPS = [op for op, spec in GATE_SPECS.items() if spec.num_qubits == 2]
+
+
+def _random_unitary(angles: tuple[float, float, float]) -> np.ndarray:
+    """A genuine 2x2 unitary built from a product of rotations."""
+    from aegisq.circuit.gates import rx_matrix, ry_matrix, rz_matrix
+
+    theta, phi, lam = angles
+    return rz_matrix(lam) @ ry_matrix(phi) @ rx_matrix(theta)
 
 
 @st.composite
@@ -57,6 +68,22 @@ def circuits(draw, min_qubits: int = 1, max_qubits: int = 6, max_gates: int = 24
                 )
             )
             getattr(circuit, opcode)(a, b)
+        elif draw(st.integers(min_value=0, max_value=9)) == 0:
+            # Occasionally emit a fused gate directly, so the `u` path is
+            # covered by every property rather than only by the fusion tests.
+            qubit = draw(st.integers(min_value=0, max_value=num_qubits - 1))
+            angles = tuple(
+                draw(
+                    st.floats(
+                        min_value=-math.pi,
+                        max_value=math.pi,
+                        allow_nan=False,
+                        allow_infinity=False,
+                    )
+                )
+                for _ in range(3)
+            )
+            circuit.u(qubit, _random_unitary(angles))
         else:
             opcode = draw(st.sampled_from(SINGLE_QUBIT_OPS))
             qubit = draw(st.integers(min_value=0, max_value=num_qubits - 1))
@@ -167,6 +194,7 @@ def test_dict_round_trip_is_lossless(circuit):
 @SETTINGS
 @given(circuit=circuits())
 def test_qasm_round_trip_preserves_the_instruction_list(circuit):
+    assume(all(gate.opcode != "u" for gate in circuit))  # no QASM form by design
     restored = parse_qasm(to_qasm(circuit))
     assert [str(g) for g in restored] == [str(g) for g in circuit]
 
@@ -174,6 +202,7 @@ def test_qasm_round_trip_preserves_the_instruction_list(circuit):
 @SETTINGS
 @given(circuit=circuits(max_qubits=5, max_gates=16))
 def test_qasm_round_trip_preserves_the_simulated_state(circuit):
+    assume(all(gate.opcode != "u" for gate in circuit))
     restored = parse_qasm(to_qasm(circuit, version="3"))
     assert np.allclose(
         Simulator("cpp").run(restored).statevector,
@@ -257,6 +286,47 @@ def test_optimizer_never_does_worse_than_the_default_placement(circuit, p):
     assert 0.0 <= result.reduction <= 1.0
     assert result.baseline.global_qubits == default_global_qubits(circuit.num_qubits, world)
     assert len(result.global_qubits) == p
+
+
+# -- gate fusion ------------------------------------------------------------
+
+
+@SETTINGS
+@given(circuit=circuits(max_qubits=5, max_gates=20))
+def test_fusion_preserves_the_state_exactly(circuit):
+    """Exactly, including global phase -- so the comparison is elementwise."""
+    from aegisq.compiler import fuse
+
+    assert np.allclose(
+        Simulator("cpp").run(fuse(circuit)).statevector,
+        Simulator("cpp").run(circuit).statevector,
+        atol=1e-12,
+    ), circuit
+
+
+@SETTINGS
+@given(case=model_and_placement())
+def test_fusion_never_increases_predicted_communication(case):
+    from aegisq.compiler import fuse
+
+    circuit, world, chosen = case
+    model = CommunicationCostModel(circuit.num_qubits, world)
+    assert (
+        model.estimate(fuse(circuit), chosen).bytes_sent
+        <= model.estimate(circuit, chosen).bytes_sent
+    )
+
+
+@SETTINGS
+@given(circuit=circuits(max_qubits=5, max_gates=20))
+def test_fusion_reaches_a_fixed_point(circuit):
+    """A second pass finds nothing left to merge."""
+    from aegisq.compiler import fuse_single_qubit_runs
+
+    once = fuse_single_qubit_runs(circuit).circuit
+    twice = fuse_single_qubit_runs(once)
+    assert twice.stats.runs_fused == 0
+    assert len(twice.circuit) == len(once)
 
 
 # -- canonical serialisation and Merkle trees -------------------------------

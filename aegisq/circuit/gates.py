@@ -29,6 +29,14 @@ import numpy as np
 #: Amplitude dtype used by the reference backend.
 COMPLEX = np.complex128
 
+#: Below this, a fused gate's off-diagonal entries count as zero. Chosen well
+#: above fp64 round-off in a product of a few dozen 2x2 matrices, and far
+#: below any physically meaningful amplitude.
+DIAGONAL_TOLERANCE = 1e-12
+
+#: Tolerance for the unitarity check applied to fused gates.
+UNITARITY_TOLERANCE = 1e-10
+
 _INV_SQRT2 = 1.0 / math.sqrt(2.0)
 
 
@@ -61,6 +69,16 @@ GATE_SPECS: dict[str, GateSpec] = {
     "cx": GateSpec("cx", 2, 0, False, (0,), "Controlled-X (control, target)"),
     "cz": GateSpec("cz", 2, 0, True, (0,), "Controlled-Z (symmetric)"),
     "swap": GateSpec("swap", 2, 0, False, (), "Exchange two qubits"),
+    # An arbitrary single-qubit unitary, carried as its four complex entries
+    # (row-major, real and imaginary parts interleaved). It exists so that a
+    # run of consecutive single-qubit gates can be fused into one operation;
+    # see aegisq.compiler.fusion.
+    #
+    # Euler angles would be the conventional representation, but this project
+    # has no hardware target to compile for, and the matrix form is exact by
+    # construction rather than through a decomposition with awkward behaviour
+    # near theta = 0 and theta = pi.
+    "u": GateSpec("u", 1, 8, False, (), "Arbitrary single-qubit unitary (fused)"),
 }
 
 #: Opcodes accepted anywhere in AegisQ, in a stable documentation order.
@@ -81,6 +99,18 @@ class Gate:
 
     @property
     def is_diagonal(self) -> bool:
+        """Whether *this instance* is diagonal in the computational basis.
+
+        For every primitive gate this is a property of the opcode. A fused
+        `u` gate has to be inspected: a run of `rz`, `s` and `z` fuses into a
+        diagonal matrix, and keeping that visible is what preserves the
+        zero-communication status such a run had before fusion.
+        """
+        if self.opcode == "u":
+            matrix = single_qubit_matrix(self)
+            return bool(
+                abs(matrix[0, 1]) < DIAGONAL_TOLERANCE and abs(matrix[1, 0]) < DIAGONAL_TOLERANCE
+            )
         return self.spec.diagonal
 
     @property
@@ -148,10 +178,38 @@ _PARAMETRIC_MATRICES = {
 }
 
 
+def matrix_to_params(matrix: np.ndarray) -> tuple[float, ...]:
+    """Flatten a 2x2 matrix into the eight real parameters of a `u` gate."""
+    flat = np.asarray(matrix, dtype=COMPLEX).reshape(4)
+    return tuple(float(value) for entry in flat for value in (entry.real, entry.imag))
+
+
+def params_to_matrix(params: tuple[float, ...]) -> np.ndarray:
+    """Rebuild the 2x2 matrix of a `u` gate from its parameters."""
+    if len(params) != 8:
+        raise ValueError(f"a u gate takes 8 parameters, got {len(params)}")
+    entries = [complex(params[i], params[i + 1]) for i in range(0, 8, 2)]
+    return np.array(entries, dtype=COMPLEX).reshape(2, 2)
+
+
+def unitary_gate(qubit: int, matrix: np.ndarray) -> Gate:
+    """Build a fused `u` gate from a 2x2 unitary."""
+    return Gate("u", (qubit,), matrix_to_params(matrix))
+
+
+def is_unitary(matrix: np.ndarray, tolerance: float = UNITARITY_TOLERANCE) -> bool:
+    matrix = np.asarray(matrix, dtype=COMPLEX)
+    if matrix.shape != (2, 2):
+        return False
+    return bool(np.allclose(matrix @ matrix.conj().T, np.eye(2), atol=tolerance))
+
+
 def single_qubit_matrix(gate: Gate) -> np.ndarray:
     """2x2 unitary for a one-qubit gate."""
     if gate.spec.num_qubits != 1:
         raise ValueError(f"{gate.opcode} is not a single-qubit gate")
+    if gate.opcode == "u":
+        return params_to_matrix(gate.params)
     if gate.opcode in _STATIC_MATRICES:
         return _STATIC_MATRICES[gate.opcode]
     return _PARAMETRIC_MATRICES[gate.opcode](gate.params[0])
@@ -175,7 +233,7 @@ def two_qubit_matrix(gate: Gate) -> np.ndarray:
     raise ValueError(f"no matrix defined for {gate.opcode}")
 
 
-def inverse(gate: Gate) -> Gate:
+def inverse(gate: Gate) -> Gate:  # noqa: D401 - see the docstring below
     """Return the inverse instruction.
 
     ``S`` and ``T`` have no dagger form in the supported gate set, so their
@@ -193,4 +251,7 @@ def inverse(gate: Gate) -> Gate:
         return Gate("rz", gate.qubits, (-math.pi / 2,))
     if gate.opcode == "t":
         return Gate("rz", gate.qubits, (-math.pi / 4,))
+    if gate.opcode == "u":
+        # The conjugate transpose is exact, global phase included.
+        return unitary_gate(gate.qubits[0], single_qubit_matrix(gate).conj().T)
     raise ValueError(f"no inverse defined for {gate.opcode}")

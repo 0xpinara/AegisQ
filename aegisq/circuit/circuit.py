@@ -89,6 +89,16 @@ class Circuit:
     def swap(self, a: int, b: int) -> Circuit:
         return self._two("swap", a, b)
 
+    def u(self, qubit: int, matrix) -> Circuit:
+        """Append an arbitrary single-qubit unitary given as a 2x2 matrix.
+
+        Produced by the fusion pass; also usable directly. The matrix is
+        checked for unitarity at construction.
+        """
+        from aegisq.circuit.gates import matrix_to_params
+
+        return self.append(Gate("u", (qubit,), matrix_to_params(matrix)))
+
     def measure(self, qubit: int) -> Circuit:
         """Mark ``qubit`` for terminal measurement."""
         if not 0 <= qubit < self.num_qubits:

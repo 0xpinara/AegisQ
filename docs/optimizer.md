@@ -101,6 +101,43 @@ aegisq optimize circuit.json --ranks 4 --json
 Output states plainly that the figures are predictions; measured numbers come
 from a benchmark run.
 
+## A second lever: gate fusion
+
+Placement decides *which* gates communicate. Fusion decides *how many times*.
+
+A single-qubit gate on a global qubit costs a whole-shard exchange. Ten
+consecutive such gates cost ten exchanges, even though their product is one
+2x2 matrix. `aegisq.compiler.fusion` multiplies each run out before execution,
+turning the ten exchanges into one. The arithmetic is unchanged — matrix
+multiplication is exactly what the ten separate applications were computing.
+
+Three properties make this safe to apply unconditionally:
+
+1. **It is exact, global phase included.** The fused matrix is carried in full
+   (eight real parameters, not Euler angles), so fused and unfused circuits
+   can be compared amplitude by amplitude and any discrepancy is a bug rather
+   than an expected phase.
+2. **It never increases communication.** A run's fused matrix needs at most
+   one exchange, where the run needed one per non-diagonal gate. A property
+   test asserts this for arbitrary circuits and placements.
+3. **It preserves "free".** A run of `rz`, `s` and `z` fuses into a *diagonal*
+   matrix, and the runtime and cost model both classify a fused gate by
+   inspecting its matrix rather than its opcode — so a diagonal run stays
+   communication-free instead of becoming a general unitary.
+
+The fused gate is an internal representation. It has no OpenQASM form (the
+subset carries no way to write a raw matrix without losing the global phase),
+so the emitter refuses rather than writing something lossy.
+
+### The levers interact
+
+Measured together, the two are not additive. For random circuits, fusion on
+its own removes almost nothing, placement removes about a third — and the
+combination removes over half. Fusing changes the cost landscape, so the
+placement search that runs afterwards finds a different and better assignment.
+The measured 2x2 is in the [README](../README.md#measured-results) and in
+`benchmarks/processed/lever_comparison.csv`.
+
 ## What the model cannot see
 
 The cost model counts bytes and messages. It does not model network topology,

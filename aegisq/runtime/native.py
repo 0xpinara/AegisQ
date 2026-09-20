@@ -37,6 +37,12 @@ def to_native_circuit(circuit: Circuit):
     core = require_core()
     native = core.Circuit(circuit.num_qubits)
     for gate in circuit:
+        if gate.opcode == "u":
+            from aegisq.circuit.gates import single_qubit_matrix
+
+            entries = [complex(value) for value in single_qubit_matrix(gate).reshape(4)]
+            native.add(core.Gate.unitary(gate.qubits[0], entries))
+            continue
         param = gate.params[0] if gate.params else 0.0
         native.add(core.Gate(gate.opcode, list(gate.qubits), param))
     return native

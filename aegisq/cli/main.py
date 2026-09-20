@@ -371,6 +371,7 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
             repeats=args.repeats,
             options=per_family,
             thread_policy=args.thread_policy,
+            levers=tuple(lever.strip() for lever in args.levers.split(",")),
         )
 
     print()
@@ -859,6 +860,11 @@ def build_parser() -> argparse.ArgumentParser:
     mapping_cmd.add_argument("--repeats", type=int, default=3)
     mapping_cmd.add_argument(
         "--option", action="append", metavar="FAMILY:KEY=VALUE", help="per-family option"
+    )
+    mapping_cmd.add_argument(
+        "--levers",
+        default="placement",
+        help="comma-separated optimisation levers to sweep: placement, fusion",
     )
     mapping_cmd.add_argument(
         "--thread-policy",

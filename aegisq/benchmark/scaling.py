@@ -121,6 +121,7 @@ def _runner_args(
     output: Path,
     options: list[str] | None,
     thread_policy: str = "unspecified",
+    fusion: bool = False,
 ) -> list[str]:
     args = [
         "--circuit",
@@ -144,6 +145,8 @@ def _runner_args(
         "--thread-policy",
         thread_policy,
     ]
+    if fusion:
+        args.append("--fuse")
     for option in options or []:
         args += ["--option", option]
     return args

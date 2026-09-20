@@ -200,6 +200,24 @@ void DistributedStateVectorT<Real>::apply_gate(const Gate& gate) {
             break;
         }
 
+        case OpCode::U: {
+            const int q = gate.qubits[0];
+            if (gate_is_diagonal(gate)) {
+                const auto diagonal = diagonal_entries(gate);
+                if (layout_.is_local(q)) {
+                    kernels::apply_diagonal(psi, n, layout_.position(q), diagonal);
+                } else {
+                    kernels::scale_all(psi, n,
+                                       diagonal[static_cast<std::size_t>(layout_.global_bit(q))]);
+                }
+            } else if (layout_.is_local(q)) {
+                kernels::apply_single_qubit(psi, n, layout_.position(q), gate.matrix);
+            } else {
+                apply_global_single_qubit(gate);
+            }
+            break;
+        }
+
         case OpCode::SWAP: {
             const int a = gate.qubits[0];
             const int b = gate.qubits[1];

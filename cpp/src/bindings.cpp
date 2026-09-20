@@ -224,15 +224,24 @@ PYBIND11_MODULE(_aegisq_core, m) {
         .value("RZ", aegisq::OpCode::RZ)
         .value("CX", aegisq::OpCode::CX)
         .value("CZ", aegisq::OpCode::CZ)
-        .value("SWAP", aegisq::OpCode::SWAP);
+        .value("SWAP", aegisq::OpCode::SWAP)
+        .value("U", aegisq::OpCode::U);
 
     m.def("opcode_from_name", &aegisq::opcode_from_name, py::arg("name"));
-    m.def("gate_is_diagonal", &aegisq::gate_is_diagonal, py::arg("opcode"));
+    m.def("gate_is_diagonal", py::overload_cast<aegisq::OpCode>(&aegisq::gate_is_diagonal),
+          py::arg("opcode"), "Whether the opcode is always diagonal (false for the fused u gate).");
+    m.def("gate_is_diagonal_instance",
+          py::overload_cast<const aegisq::Gate&>(&aegisq::gate_is_diagonal), py::arg("gate"),
+          "Whether this instruction is diagonal, inspecting a fused matrix.");
     m.def("gate_arity", &aegisq::gate_arity, py::arg("opcode"));
 
     py::class_<aegisq::Gate>(m, "Gate")
         .def(py::init([](const std::string& opcode, const std::vector<int>& qubits, double param) {
                  const aegisq::OpCode code = aegisq::opcode_from_name(opcode);
+                 if (code == aegisq::OpCode::U) {
+                     throw std::invalid_argument(
+                         "a fused u gate needs a matrix; use Gate.unitary(qubit, entries)");
+                 }
                  if (qubits.size() != static_cast<std::size_t>(aegisq::gate_arity(code))) {
                      throw std::invalid_argument("wrong number of qubits for " + opcode);
                  }
@@ -240,6 +249,25 @@ PYBIND11_MODULE(_aegisq_core, m) {
                                            : aegisq::Gate::two(code, qubits[0], qubits[1]);
              }),
              py::arg("opcode"), py::arg("qubits"), py::arg("param") = 0.0)
+        .def_static(
+            "unitary",
+            [](int qubit, const std::vector<std::complex<double>>& entries) {
+                if (entries.size() != 4) {
+                    throw std::invalid_argument("a fused gate needs exactly four entries");
+                }
+                std::array<std::complex<double>, 4> matrix{entries[0], entries[1], entries[2],
+                                                           entries[3]};
+                return aegisq::Gate::unitary(qubit, matrix);
+            },
+            py::arg("qubit"), py::arg("entries"),
+            "Build a fused single-qubit gate from its four row-major entries.")
+        .def_property_readonly("matrix",
+                               [](const aegisq::Gate& g) {
+                                   return std::vector<std::complex<double>>(g.matrix.begin(),
+                                                                            g.matrix.end());
+                               })
+        .def_property_readonly("is_diagonal",
+                               [](const aegisq::Gate& g) { return aegisq::gate_is_diagonal(g); })
         .def_readonly("opcode", &aegisq::Gate::opcode)
         .def_readonly("param", &aegisq::Gate::param)
         .def_property_readonly("qubits",

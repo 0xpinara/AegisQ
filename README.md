@@ -46,6 +46,7 @@ comparison is made here; see [docs/limitations.md](docs/limitations.md)).
 |---|---|
 | Simulation | distributed state vector over MPI, OpenMP local kernels, fp64/fp32, twelve gates, terminal measurement |
 | Placement | gate-role-aware cost model in bytes, exhaustive or heuristic search, applied by the runtime |
+| Fusion | consecutive single-qubit runs multiplied into one unitary, exact including global phase, never increasing communication |
 | Instrumentation | every MPI transfer timed and counted, per opcode, rank-local and world-reduced |
 | Security | ML-KEM-768 / ML-DSA-65 job envelopes, replay protection, signed Merkle-committed results |
 | Algorithms | GHZ, QFT, Trotterised Ising, Grover, Shor (factors 15 and 21), random circuits |
@@ -107,21 +108,37 @@ aegisq doctor   # report MPI / OpenMP / liboqs / Qiskit availability
 
 <!-- BENCHMARK-RESULTS:START -->
 
-All figures below were measured on **Apple M2 (8 logical cores)**, macOS-15.6.1-arm64-arm-64bit, Open MPI v5.0.10, AegisQ 0.1.0 at commit `74a1a238513b`. They describe that host and are not a claim about cluster hardware.
+All figures below were measured on **Apple M2 (8 logical cores)**, macOS-15.6.1-arm64-arm-64bit, Open MPI v5.0.10, AegisQ 0.1.0 at commit `b67b6064b543`. They describe that host and are not a claim about cluster hardware.
 
 ### Communication-aware placement, 8 ranks, 20 qubits
 
 | circuit | measured MPI bytes, default | measured MPI bytes, optimized | reduction | wall time change |
 |---|---:|---:|---:|---:|
-| qft | 981,467,136 | 125,829,120 | **87.2%** | -24.3% |
-| grover | 1,879,048,192 | 520,093,696 | **72.3%** | -20.7% |
-| random | 411,041,792 | 251,658,240 | **38.8%** | -20.0% |
-| ising | 452,984,832 | 385,875,968 | **14.8%** | +1.1% |
-| ghz | 25,165,824 | 25,165,824 | **0.0%** | -7.9% |
+| qft | 981,467,136 | 125,829,120 | **87.2%** | -20.8% |
+| grover | 1,879,048,192 | 520,093,696 | **72.3%** | -17.8% |
+| random | 411,041,792 | 251,658,240 | **38.8%** | -9.6% |
+| ising | 452,984,832 | 385,875,968 | **14.8%** | +17.7% |
+| ghz | 25,165,824 | 25,165,824 | **0.0%** | +20.7% |
 
 Not every circuit benefits: ghz shows no reduction, because its expensive qubits already sit well under the default placement. That is a result, not a gap — a heuristic that claimed a win on every circuit would be the suspicious one.
 
 ![Communication-aware placement](benchmarks/plots/mapping_comparison.png)
+
+### Two levers on the same problem
+
+Qubit placement decides *which* gates communicate; gate fusion decides *how many times*. Measured separately and together, at 8 ranks:
+
+| circuit | baseline MPI bytes | fusion only | placement only | both |
+|---|---:|---:|---:|---:|
+| qft | 981,467,136 | 0.0% | 87.2% | **87.2%** |
+| grover | 1,879,048,192 | 16.1% | 72.3% | **86.6%** |
+| random | 411,041,792 | 8.2% | 38.8% | **53.1%** |
+| ising | 452,984,832 | 0.0% | 14.8% | **14.8%** |
+| ghz | 25,165,824 | 0.0% | 0.0% | **0.0%** |
+
+The levers are not independent. For `random` the combination removes 53.1% where the two separately remove 8.2% and 38.8% — fusing first changes which placement is best, so the search finds a better one.
+
+![Optimisation levers](benchmarks/plots/lever_comparison.png)
 
 ### Strong scaling (one thread per rank)
 
@@ -152,7 +169,7 @@ Not every circuit benefits: ghz shows no reduction, because its expensive qubits
 | verify, decrypt and open it | 5.6 ms | — |
 | envelope overhead, independent of circuit size | — | 7083 B |
 
-For scale: the heaviest job measured here (grover, 20 qubits, 8 ranks) runs for 582 ms and moves 1792 MiB over MPI. Securing it costs 8.7 ms end to end and 6.9 KiB on the wire — 1.49% of the runtime. Only 189 us of that is lattice arithmetic; the rest is canonical serialisation and base64, which is where an optimisation would actually pay off.
+For scale: the heaviest job measured here (grover, 20 qubits, 8 ranks) runs for 569 ms and moves 1792 MiB over MPI. Securing it costs 8.7 ms end to end and 6.9 KiB on the wire — 1.52% of the runtime. Only 189 us of that is lattice arithmetic; the rest is canonical serialisation and base64, which is where an optimisation would actually pay off.
 
 ### Why post-quantum cryptography, in one table
 
@@ -172,7 +189,7 @@ Every row is a simulated run, not a formula: searching 256 items took 12 oracle 
 
 ### Cost model versus reality
 
-In all **42 of 42** distributed configurations measured here, the runtime sent exactly the number of bytes the analytical cost model predicted.
+In all **72 of 72** distributed configurations measured here, the runtime sent exactly the number of bytes the analytical cost model predicted.
 
 Raw measurements: [`benchmarks/raw/`](benchmarks/raw/) · derived tables: [`benchmarks/processed/`](benchmarks/processed/) · methodology: [`docs/benchmark-methodology.md`](docs/benchmark-methodology.md)
 

@@ -22,6 +22,14 @@ int gate_arity(OpCode opcode) {
     }
 }
 
+bool gate_is_diagonal(const Gate& gate) {
+    if (gate.opcode != OpCode::U) {
+        return gate_is_diagonal(gate.opcode);
+    }
+    return std::abs(gate.matrix[1]) < kDiagonalTolerance &&
+           std::abs(gate.matrix[2]) < kDiagonalTolerance;
+}
+
 bool gate_is_diagonal(OpCode opcode) {
     switch (opcode) {
         case OpCode::Z:
@@ -71,6 +79,8 @@ std::string_view opcode_name(OpCode opcode) {
             return "cz";
         case OpCode::SWAP:
             return "swap";
+        case OpCode::U:
+            return "u";
     }
     return "unknown";
 }
@@ -88,6 +98,7 @@ OpCode opcode_from_name(std::string_view name) {
     if (name == "cx") return OpCode::CX;
     if (name == "cz") return OpCode::CZ;
     if (name == "swap") return OpCode::SWAP;
+    if (name == "u") return OpCode::U;
     throw std::invalid_argument("unsupported opcode: " + std::string(name));
 }
 
@@ -121,6 +132,8 @@ std::array<std::complex<double>, 4> single_qubit_matrix(const Gate& gate) {
             const C phase{std::cos(theta / 2.0), -std::sin(theta / 2.0)};
             return {phase, C{0, 0}, C{0, 0}, std::conj(phase)};
         }
+        case OpCode::U:
+            return gate.matrix;
         default:
             throw std::invalid_argument("not a single-qubit gate: " +
                                         std::string(opcode_name(gate.opcode)));
@@ -128,6 +141,12 @@ std::array<std::complex<double>, 4> single_qubit_matrix(const Gate& gate) {
 }
 
 std::array<std::complex<double>, 2> diagonal_entries(const Gate& gate) {
+    if (gate.opcode == OpCode::U) {
+        if (!gate_is_diagonal(gate)) {
+            throw std::invalid_argument("fused gate is not diagonal");
+        }
+        return {gate.matrix[0], gate.matrix[3]};
+    }
     if (!gate_is_diagonal(gate.opcode) || gate_arity(gate.opcode) != 1) {
         throw std::invalid_argument("not a diagonal single-qubit gate: " +
                                     std::string(opcode_name(gate.opcode)));
@@ -138,6 +157,10 @@ std::array<std::complex<double>, 2> diagonal_entries(const Gate& gate) {
 
 std::string to_string(const Gate& gate) {
     std::string out(opcode_name(gate.opcode));
+    if (gate.opcode == OpCode::U) {
+        return out + (gate_is_diagonal(gate) ? "[diagonal]" : "[general]") + " q" +
+               std::to_string(gate.qubits[0]);
+    }
     if (gate.opcode == OpCode::RX || gate.opcode == OpCode::RY || gate.opcode == OpCode::RZ) {
         out += "(" + std::to_string(gate.param) + ")";
     }

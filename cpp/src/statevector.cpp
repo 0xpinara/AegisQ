@@ -165,6 +165,15 @@ void StateVectorT<Real>::apply_gate(const Gate& gate) {
         case OpCode::SWAP:
             kernels::apply_swap(psi, n, gate.qubits[0], gate.qubits[1]);
             break;
+        case OpCode::U:
+            // A fused gate takes the cheaper diagonal kernel whenever its
+            // matrix allows it, exactly as the primitive gates do.
+            if (gate_is_diagonal(gate)) {
+                kernels::apply_diagonal(psi, n, gate.qubits[0], diagonal_entries(gate));
+            } else {
+                kernels::apply_single_qubit(psi, n, gate.qubits[0], gate.matrix);
+            }
+            break;
     }
     ++metrics_.gates_applied;
 }
