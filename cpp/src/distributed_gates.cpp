@@ -450,6 +450,50 @@ CommunicationMetrics DistributedStateVectorT<Real>::reduced_metrics() const {
         reduced.communication_seconds = slowest[0];
         reduced.compute_seconds = slowest[1];
         reduced.total_seconds = slowest[2];
+
+        // The per-opcode breakdown is reduced too, but only when every rank
+        // agrees on the key set. Ranks execute the same circuit, so they
+        // normally do; checking first means a mismatch degrades to
+        // rank-local numbers instead of deadlocking on mismatched counts.
+        const std::uint64_t local_keys = reduced.per_opcode.size();
+        std::uint64_t min_keys = 0;
+        std::uint64_t max_keys = 0;
+        MPI_Allreduce(&local_keys, &min_keys, 1, MPI_UINT64_T, MPI_MIN,
+                      MpiContext::instance().comm());
+        MPI_Allreduce(&local_keys, &max_keys, 1, MPI_UINT64_T, MPI_MAX,
+                      MpiContext::instance().comm());
+
+        if (min_keys == max_keys && local_keys > 0) {
+            const std::size_t k = reduced.per_opcode.size();
+            std::vector<std::uint64_t> counters(4 * k, 0);
+            std::vector<double> seconds(k, 0.0);
+            std::size_t index = 0;
+            for (const auto& [name, stats] : reduced.per_opcode) {
+                counters[4 * index + 0] = stats.gates;
+                counters[4 * index + 1] = stats.exchanges;
+                counters[4 * index + 2] = stats.bytes_sent;
+                counters[4 * index + 3] = stats.bytes_received;
+                seconds[index] = stats.communication_seconds;
+                ++index;
+            }
+
+            std::vector<std::uint64_t> summed(4 * k, 0);
+            std::vector<double> slowest_per_opcode(k, 0.0);
+            MPI_Allreduce(counters.data(), summed.data(), static_cast<int>(4 * k), MPI_UINT64_T,
+                          MPI_SUM, MpiContext::instance().comm());
+            MPI_Allreduce(seconds.data(), slowest_per_opcode.data(), static_cast<int>(k),
+                          MPI_DOUBLE, MPI_MAX, MpiContext::instance().comm());
+
+            index = 0;
+            for (auto& [name, stats] : reduced.per_opcode) {
+                stats.gates = summed[4 * index + 0];
+                stats.exchanges = summed[4 * index + 1];
+                stats.bytes_sent = summed[4 * index + 2];
+                stats.bytes_received = summed[4 * index + 3];
+                stats.communication_seconds = slowest_per_opcode[index];
+                ++index;
+            }
+        }
     }
 #endif
     return reduced;

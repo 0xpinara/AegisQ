@@ -50,3 +50,10 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   with a per-opcode breakdown and a world-reduced view that sums byte counts
   and maximises times. Byte counts are pinned to closed-form expectations in
   the MPI suite.
+- `CommunicationCostModel`: gate-role-aware prediction of bytes and messages
+  for a candidate qubit placement, expressed in bytes so it can be checked
+  against measured counters. Verified equal to measurement on the distributed
+  runtime for random circuits, custom placements and fp32 shards.
+- Per-opcode metrics are now reduced across ranks as well, guarded by a key-set
+  agreement check so a mismatch degrades to rank-local numbers instead of
+  deadlocking.
