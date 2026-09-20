@@ -289,6 +289,22 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
         print("  aegisq benchmark report")
         return 0
 
+    if args.benchmark_command == "search":
+        from aegisq.benchmark.search import run_suite as run_search
+
+        output = args.output or default_raw_path("search")
+        print(f"Writing raw Grover measurements to {output}")
+        run_search(
+            output,
+            bits=[int(b) for b in args.bits.split(",")],
+            shots=args.shots,
+            seed=args.seed,
+        )
+        print()
+        print("Raw data written. Regenerate tables and plots with:")
+        print("  aegisq benchmark report")
+        return 0
+
     if args.benchmark_command == "report":
         written = report_module.write_reports(args.raw)
         if not written:
@@ -863,6 +879,16 @@ def build_parser() -> argparse.ArgumentParser:
     pqc_cmd.add_argument("--envelope-qubits", type=int, default=20)
     pqc_cmd.add_argument("--output", type=Path)
     pqc_cmd.set_defaults(func=_cmd_benchmark)
+
+    search_cmd = benchmark_sub.add_parser(
+        "search",
+        help="measure Grover's oracle-query scaling against classical search",
+    )
+    search_cmd.add_argument("--bits", default="2,3,4,5,6,7,8", help="search-space sizes as 2^k")
+    search_cmd.add_argument("--shots", type=int, default=2048)
+    search_cmd.add_argument("--seed", type=int, default=42)
+    search_cmd.add_argument("--output", type=Path)
+    search_cmd.set_defaults(func=_cmd_benchmark)
 
     report_cmd = benchmark_sub.add_parser(
         "report", help="regenerate processed tables and plots from raw measurements"

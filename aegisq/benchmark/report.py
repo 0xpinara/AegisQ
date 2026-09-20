@@ -39,9 +39,10 @@ CONFIG_KEYS = [
 def load_raw(source: Path | None = None) -> pd.DataFrame:
     """Read every raw CSV under `source` (default `benchmarks/raw`)."""
     source = source or RAW_DIR
-    # The post-quantum files have their own schema and are loaded separately.
+    # The post-quantum and search files have their own schemas and are loaded
+    # separately.
     paths = (
-        [p for p in sorted(source.glob("*.csv")) if not p.name.startswith("pqc_")]
+        [p for p in sorted(source.glob("*.csv")) if not p.name.startswith(("pqc_", "search_"))]
         if source.is_dir()
         else [source]
     )
@@ -321,6 +322,105 @@ def plot_pqc(table: pd.DataFrame, path: Path, host: str = "") -> Path | None:
     size_ax.grid(axis="x", visible=False)
 
     fig.suptitle(f"Post-quantum primitives{f' — {host}' if host else ''}", fontsize=12, color=INK)
+    fig.tight_layout()
+    return _save(fig, path)
+
+
+def load_search(source: Path | None = None) -> pd.DataFrame:
+    """Read the Grover scaling measurements, if any exist."""
+    source = source or RAW_DIR
+    paths = sorted(source.glob("search_*.csv")) if source.is_dir() else [source]
+    frames = [pd.read_csv(path) for path in paths if path.exists()]
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+def search_table(data: pd.DataFrame) -> pd.DataFrame:
+    if data.empty:
+        return data
+    return (
+        data.groupby(["search_bits"], as_index=False)
+        .agg(
+            search_space=("search_space", "max"),
+            qubits=("qubits", "max"),
+            gates=("gates", "max"),
+            grover_iterations=("grover_iterations", "max"),
+            classical_expected=("classical_expected_queries", "max"),
+            classical_worst=("classical_worst_case_queries", "max"),
+            measured_success=("measured_success_probability", "max"),
+            theoretical_success=("theoretical_success_probability", "max"),
+        )
+        .sort_values("search_bits")
+        .reset_index(drop=True)
+    )
+
+
+def plot_search_scaling(table: pd.DataFrame, path: Path, host: str = "") -> Path | None:
+    """Oracle queries against search-space size, with measured success beside it."""
+    if table.empty:
+        return None
+    plt = _figure()
+    fig, (query_ax, success_ax) = plt.subplots(1, 2, figsize=(11, 4.4), facecolor=SURFACE)
+
+    spaces = table["search_space"]
+    query_ax.plot(
+        spaces,
+        table["classical_expected"],
+        marker="o",
+        markersize=6,
+        linewidth=2,
+        color=SERIES_COLORS[0],
+        label="classical, expected (N+1)/2",
+        zorder=2,
+    )
+    query_ax.plot(
+        spaces,
+        table["grover_iterations"],
+        marker="o",
+        markersize=6,
+        linewidth=2,
+        color=SERIES_COLORS[1],
+        label="Grover, floor(pi/4 sqrt(N))",
+        zorder=2,
+    )
+    query_ax.set_xscale("log", base=2)
+    query_ax.set_yscale("log", base=2)
+    query_ax.set_facecolor(SURFACE)
+    _style_axes(query_ax, "Oracle queries", "search space N", "queries")
+    query_ax.legend(fontsize=8, frameon=False, labelcolor=INK_MUTED)
+
+    # Theory as a line, measurement as markers on top: they agree closely, and
+    # drawing the measurement as a line would simply hide the theory curve.
+    success_ax.plot(
+        spaces,
+        table["theoretical_success"],
+        linewidth=2,
+        color=GRID,
+        label="theoretical",
+        zorder=2,
+    )
+    success_ax.plot(
+        spaces,
+        table["measured_success"],
+        linestyle="none",
+        marker="o",
+        markersize=7,
+        markerfacecolor=SERIES_COLORS[1],
+        markeredgecolor=SURFACE,
+        markeredgewidth=1.2,
+        label="measured",
+        zorder=3,
+    )
+    success_ax.set_xscale("log", base=2)
+    success_ax.set_ylim(0, 1.05)
+    success_ax.set_facecolor(SURFACE)
+    _style_axes(
+        success_ax, "Probability of measuring the marked state", "search space N", "probability"
+    )
+    success_ax.legend(fontsize=8, frameon=False, labelcolor=INK_MUTED)
+
+    fig.suptitle(f"Grover search, simulated{f' — {host}' if host else ''}", fontsize=12, color=INK)
     fig.tight_layout()
     return _save(fig, path)
 
@@ -667,6 +767,14 @@ def write_reports(
             envelope.to_csv(processed / "pqc_envelope.csv", index=False)
             written["pqc_envelope"] = processed / "pqc_envelope.csv"
 
+    search = search_table(load_search(raw))
+    if not search.empty:
+        search.to_csv(processed / "grover_scaling.csv", index=False)
+        written["grover_scaling"] = processed / "grover_scaling.csv"
+        figure = plot_search_scaling(search, plots / "grover_scaling.png", host)
+        if figure:
+            written["grover_scaling_plot"] = figure
+
     return written
 
 
@@ -758,6 +866,23 @@ def markdown_summary(raw: Path | None = None) -> str:
         for row in envelope.itertuples():
             timing = f"{row.median_us:.0f}" if row.median_us > 0 else "-"
             lines.append(f"| {row.operation} | {timing} | {int(row.bytes)} |")
+        lines.append("")
+
+    search = search_table(load_search(raw))
+    if not search.empty:
+        lines.append("## Grover query scaling (measured)")
+        lines.append("")
+        lines.append(
+            "| search space | qubits | classical expected queries | Grover queries | "
+            "measured success |"
+        )
+        lines.append("|---:|---:|---:|---:|---:|")
+        for row in search.itertuples():
+            lines.append(
+                f"| {int(row.search_space)} | {int(row.qubits)} | "
+                f"{row.classical_expected:.1f} | {int(row.grover_iterations)} | "
+                f"{row.measured_success * 100:.1f}% |"
+            )
         lines.append("")
 
     accuracy = prediction_accuracy(data)

@@ -146,6 +146,34 @@ def build_block() -> str:
             )
             lines.append("")
 
+    search = report_module.search_table(report_module.load_search())
+    if not search.empty:
+        largest = search.iloc[-1]
+        lines.append("### Why post-quantum cryptography, in one table")
+        lines.append("")
+        lines.append(
+            "| search space | Grover oracle queries | classical expected | measured success |"
+        )
+        lines.append("|---:|---:|---:|---:|")
+        for row in search.itertuples():
+            lines.append(
+                f"| {int(row.search_space)} | {int(row.grover_iterations)} | "
+                f"{row.classical_expected:.1f} | {row.measured_success * 100:.1f}% |"
+            )
+        lines.append("")
+        lines.append(
+            f"Every row is a simulated run, not a formula: searching "
+            f"{int(largest.search_space)} items took {int(largest.grover_iterations)} oracle "
+            f"queries where classical search averages {largest.classical_expected:.1f}, and the "
+            f"marked state was measured {largest.measured_success * 100:.1f}% of the time. "
+            "That quadratic factor is why post-quantum guidance doubles symmetric key sizes "
+            "rather than abandoning them — while Shor's exponential advantage is why "
+            "RSA and elliptic curves are replaced outright."
+        )
+        lines.append("")
+        lines.append("![Grover query scaling](benchmarks/plots/grover_scaling.png)")
+        lines.append("")
+
     if not accuracy.empty:
         exact = int((accuracy["bytes_error"] == 0).sum())
         lines.append(

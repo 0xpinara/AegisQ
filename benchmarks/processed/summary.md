@@ -87,6 +87,18 @@
 | payload_plaintext | - | 53232 |
 | verify_and_open | 5571 | 78059 |
 
+## Grover query scaling (measured)
+
+| search space | qubits | classical expected queries | Grover queries | measured success |
+|---:|---:|---:|---:|---:|
+| 4 | 2 | 2.5 | 1 | 100.0% |
+| 8 | 4 | 4.5 | 2 | 95.4% |
+| 16 | 6 | 8.5 | 3 | 96.6% |
+| 32 | 8 | 16.5 | 4 | 99.9% |
+| 64 | 10 | 32.5 | 6 | 99.7% |
+| 128 | 12 | 64.5 | 8 | 99.6% |
+| 256 | 14 | 128.5 | 12 | 100.0% |
+
 ## Cost-model accuracy
 
 - 42 of 42 distributed configurations sent exactly the number of bytes the cost model predicted.

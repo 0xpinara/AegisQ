@@ -127,6 +127,11 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
   all three security levels, plus the end-to-end cost of packing and opening a
   real job bundle, with the envelope's fixed overhead separated from base64
   expansion of the payload.
+- `aegisq benchmark search`: Grover's measured oracle-query scaling against
+  classical search, with the measured success probability beside the
+  theoretical curve.
+- Runnable examples for GHZ, QFT (with a live placement comparison under
+  mpirun), Ising, Grover and Shor.
 
 ### Fixed
 - `qft()` iterated the qubits in the wrong direction and produced a circuit

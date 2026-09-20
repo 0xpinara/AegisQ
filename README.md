@@ -147,6 +147,22 @@ Not every circuit benefits: ghz shows no reduction, because its expensive qubits
 
 For scale: the heaviest job measured here (grover, 20 qubits, 8 ranks) runs for 582 ms and moves 1792 MiB over MPI. Securing it costs 8.7 ms end to end and 6.9 KiB on the wire — 1.49% of the runtime. Only 189 us of that is lattice arithmetic; the rest is canonical serialisation and base64, which is where an optimisation would actually pay off.
 
+### Why post-quantum cryptography, in one table
+
+| search space | Grover oracle queries | classical expected | measured success |
+|---:|---:|---:|---:|
+| 4 | 1 | 2.5 | 100.0% |
+| 8 | 2 | 4.5 | 95.4% |
+| 16 | 3 | 8.5 | 96.6% |
+| 32 | 4 | 16.5 | 99.9% |
+| 64 | 6 | 32.5 | 99.7% |
+| 128 | 8 | 64.5 | 99.6% |
+| 256 | 12 | 128.5 | 100.0% |
+
+Every row is a simulated run, not a formula: searching 256 items took 12 oracle queries where classical search averages 128.5, and the marked state was measured 100.0% of the time. That quadratic factor is why post-quantum guidance doubles symmetric key sizes rather than abandoning them — while Shor's exponential advantage is why RSA and elliptic curves are replaced outright.
+
+![Grover query scaling](benchmarks/plots/grover_scaling.png)
+
 ### Cost model versus reality
 
 In all **42 of 42** distributed configurations measured here, the runtime sent exactly the number of bytes the analytical cost model predicted.
