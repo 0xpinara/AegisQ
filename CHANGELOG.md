@@ -93,3 +93,9 @@ All notable changes to AegisQ-HPC are recorded here. The format follows
 - HKDF-SHA256 key derivation bound to protocol version and job id, and
   AES-256-GCM authenticated encryption.
 - `aegisq keys init-client|init-cluster|fingerprint`.
+- Signed, encrypted `.aqjob` bundles: the public header is the AEAD associated
+  data and the ML-DSA signature covers header and ciphertext together, so any
+  edit breaks decryption as well as the signature. The manifest and circuit
+  are encrypted together so parameters cannot be separated from the program.
+- `aegisq secure-pack` and `aegisq secure-inspect` (metadata without
+  decrypting, and without needing any key).

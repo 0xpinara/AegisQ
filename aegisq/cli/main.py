@@ -392,6 +392,85 @@ def _cmd_keys(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_secure_pack(args: argparse.Namespace) -> int:
+    """Build a signed, encrypted job bundle."""
+    from aegisq.secure.envelope import (
+        EnvelopeError,
+        ExecutionRequest,
+        inspect_job,
+        pack_job,
+        write_job,
+    )
+    from aegisq.secure.keys import IdentityError, load_identity, load_public_identity
+
+    circuit = _load_circuit(args.circuit, args.qubits, _parse_options(args.option))
+    try:
+        client = load_identity(args.identity)
+        cluster_public = load_public_identity(args.cluster)
+        raw = pack_job(
+            circuit,
+            ExecutionRequest(
+                ranks=args.ranks,
+                precision=args.precision,
+                shots=args.shots,
+                seed=args.seed,
+                mapping_strategy=args.mapping,
+            ),
+            client,
+            cluster_public,
+        )
+    except (IdentityError, EnvelopeError) as exc:
+        raise SystemExit(str(exc)) from None
+
+    output = args.output or Path(f"{circuit.name}.aqjob")
+    write_job(output, raw)
+    summary = inspect_job(raw)
+
+    print(f"Packed {circuit.name} ({circuit.num_qubits} qubits, {len(circuit)} gates)")
+    print(f"  job id:            {summary['job_id']}")
+    print(f"  signed by:         {summary['client_name']} ({summary['client_fingerprint']})")
+    print(f"  addressed to:      {summary['cluster_name']} ({summary['cluster_fingerprint']})")
+    print(
+        f"  suite:             {summary['crypto_suite']['kem']} + "
+        f"{summary['crypto_suite']['signature']} + {summary['crypto_suite']['aead']}"
+    )
+    print(f"  ciphertext:        {summary['ciphertext_bytes']} bytes")
+    print(f"  bundle:            {output} ({len(raw)} bytes)")
+    return 0
+
+
+def _cmd_secure_inspect(args: argparse.Namespace) -> int:
+    """Show a bundle's public metadata without decrypting it."""
+    import json
+
+    from aegisq.secure.envelope import EnvelopeError, inspect_job, read_job
+
+    try:
+        summary = inspect_job(read_job(args.bundle))
+    except EnvelopeError as exc:
+        raise SystemExit(str(exc)) from None
+
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        return 0
+
+    print(f"Job bundle: {args.bundle}")
+    print(f"  job id:            {summary['job_id']}")
+    print(f"  created:           {summary['created_at']}")
+    print(f"  signed by:         {summary['client_name']} ({summary['client_fingerprint']})")
+    print(f"  addressed to:      {summary['cluster_name']} ({summary['cluster_fingerprint']})")
+    suite = summary["crypto_suite"]
+    print(f"  KEM:               {suite['kem']}")
+    print(f"  signature:         {suite['signature']}")
+    print(f"  KDF / AEAD:        {suite['kdf']} / {suite['aead']}")
+    print(f"  ciphertext:        {summary['ciphertext_bytes']} bytes")
+    print(f"  envelope sha256:   {summary['envelope_sha256']}")
+    print()
+    print("  Metadata only: the signature has not been checked and the payload")
+    print("  stays encrypted. Use `aegisq secure-run` to verify and execute.")
+    return 0
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     """Report what the local machine can and cannot do."""
     from aegisq.runtime import hardware
@@ -585,6 +664,40 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fingerprint_cmd.add_argument("path", type=Path)
     fingerprint_cmd.set_defaults(func=_cmd_keys)
+
+    secure_pack = subparsers.add_parser(
+        "secure-pack",
+        help="build a signed, encrypted job bundle",
+        description=(
+            "Encapsulate to the cluster's ML-KEM key, derive an AES-256-GCM key "
+            "bound to this job, encrypt the manifest and circuit together, and "
+            "sign the result with the client's ML-DSA key."
+        ),
+    )
+    secure_pack.add_argument("circuit", help="circuit file or benchmark family name")
+    secure_pack.add_argument("--qubits", type=int, help="width, when building a named family")
+    secure_pack.add_argument(
+        "--identity", type=Path, required=True, help="client identity base path (no suffix)"
+    )
+    secure_pack.add_argument(
+        "--cluster", type=Path, required=True, help="cluster public identity file"
+    )
+    secure_pack.add_argument("--ranks", type=int, default=1)
+    secure_pack.add_argument("--precision", choices=("fp64", "fp32"), default="fp64")
+    secure_pack.add_argument("--shots", type=int, default=1024)
+    secure_pack.add_argument("--seed", type=int, default=42)
+    secure_pack.add_argument("--mapping", choices=("default", "optimized"), default="default")
+    secure_pack.add_argument("--option", action="append", metavar="KEY=VALUE")
+    secure_pack.add_argument("--output", type=Path)
+    secure_pack.set_defaults(func=_cmd_secure_pack)
+
+    secure_inspect = subparsers.add_parser(
+        "secure-inspect",
+        help="show a bundle's public metadata without decrypting it",
+    )
+    secure_inspect.add_argument("bundle", type=Path)
+    secure_inspect.add_argument("--json", action="store_true")
+    secure_inspect.set_defaults(func=_cmd_secure_inspect)
 
     estimate = subparsers.add_parser(
         "estimate",
