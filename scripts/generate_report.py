@@ -517,9 +517,20 @@ def build_block() -> str:
             lines.append(
                 f"| {row.algorithm} {row.operation} | {row.median_us:.1f} us | {int(row.bytes)} B |"
             )
-        pack = float(by_step["median_us"].get("pack_job", 0.0))
-        verify = float(by_step["median_us"].get("verify_and_open", 0.0))
-        overhead = int(by_step["bytes"].get("envelope_fixed_overhead", 0))
+
+        def envelope_step(column: str, name: str) -> float:
+            # No silent default: the same lookup elsewhere in this file had
+            # the wrong key and reported the envelope's cost with half of
+            # it missing.
+            if name not in by_step.index:
+                raise SystemExit(
+                    f"envelope measurement {name!r} is missing; have {sorted(by_step.index)}"
+                )
+            return float(by_step.loc[name, column])
+
+        pack = envelope_step("median_us", "pack_job")
+        verify = envelope_step("median_us", "verify_and_open")
+        overhead = int(envelope_step("bytes", "envelope_fixed_overhead"))
         lines.append(f"| pack a job bundle (end to end) | {pack / 1000:.1f} ms | — |")
         lines.append(f"| verify, decrypt and open it | {verify / 1000:.1f} ms | — |")
         lines.append(f"| envelope overhead, independent of circuit size | — | {overhead} B |")

@@ -602,3 +602,55 @@ def test_the_paper_does_not_restate_a_generated_figure_by_hand():
             f"main.tex writes {literal} literally; use one of "
             + ", ".join(f"\\{name}" for name in owners)
         )
+
+
+def test_a_distributed_run_refuses_to_record_missing_counters():
+    """Zero bytes sent must never be recorded as a measurement.
+
+    The communication figures are written with a zero default, which is
+    right on one rank -- nothing was sent, so no counter exists. On
+    several ranks the same default would absorb a counter renamed on the
+    C++ side or a profiler that stopped being reduced across ranks, and
+    the sweep would carry on recording zero bytes. A zero baseline makes
+    the reduction percentage in the headline undefined, or worse,
+    plausible.
+    """
+    from aegisq.benchmark.runner import _require_communication_metrics
+
+    complete = {
+        "bytes_sent": 1024,
+        "bytes_received": 1024,
+        "pairwise_exchanges": 4,
+        "communicating_gates": 2,
+    }
+    # One rank sends nothing, so an empty set of counters is correct.
+    _require_communication_metrics({}, ranks=1)
+    _require_communication_metrics(complete, ranks=8)
+
+    for missing in complete:
+        partial = {key: value for key, value in complete.items() if key != missing}
+        with pytest.raises(RuntimeError, match=missing):
+            _require_communication_metrics(partial, ranks=8)
+
+
+def test_a_missing_envelope_step_is_an_error_not_a_zero():
+    """`.get(name, 0.0)` with the wrong name published a wrong number twice."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    script = root / "scripts" / "generate_report.py"
+    source = script.read_text(encoding="utf-8")
+    assert '.get("pack' not in source, "the silent envelope lookup is back"
+    assert source.count("envelope measurement") >= 2, (
+        "both envelope lookups should name what they could not find"
+    )
+    completed = subprocess.run(
+        [sys.executable, str(script), "--check", "--skip-reports"],
+        capture_output=True,
+        text=True,
+        cwd=root,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr

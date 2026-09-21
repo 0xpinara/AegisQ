@@ -216,6 +216,40 @@ def build_circuit(config: BenchmarkConfig):
     return make(config.circuit_family, config.qubits, **config.options)
 
 
+#: Counters that must exist once there is more than one rank. Below that
+#: they are legitimately absent, because nothing was sent.
+_COMMUNICATION_METRICS = (
+    "bytes_sent",
+    "bytes_received",
+    "pairwise_exchanges",
+    "communicating_gates",
+)
+
+
+def _require_communication_metrics(metrics: dict[str, Any], ranks: int) -> None:
+    """Refuse to record a distributed run whose counters went missing.
+
+    Every communication figure is written with a zero default, which is
+    correct on one rank: no bytes moved, so no counter exists. On several
+    ranks the same default is a trap. If a counter were renamed on the C++
+    side, or the profiler stopped being reduced across ranks, the sweep
+    would keep running and record zero bytes sent -- and a zero baseline
+    makes the reduction percentage in the headline undefined or, worse,
+    quietly plausible.
+
+    A benchmark that cannot measure the thing it exists to measure should
+    stop, not average.
+    """
+    if ranks <= 1:
+        return
+    absent = [name for name in _COMMUNICATION_METRICS if name not in metrics]
+    if absent:
+        raise RuntimeError(
+            f"distributed run at {ranks} ranks reported no {', '.join(absent)}; "
+            f"the runtime provided {sorted(metrics)}"
+        )
+
+
 def measure(config: BenchmarkConfig) -> list[dict[str, Any]]:
     """Run one configuration `repeats` times and return the raw rows.
 
@@ -286,6 +320,7 @@ def measure(config: BenchmarkConfig) -> list[dict[str, Any]]:
         if repeat < 0:
             continue  # warm-up
         metrics = result.metrics
+        _require_communication_metrics(metrics, ranks)
 
         rows.append(
             {
