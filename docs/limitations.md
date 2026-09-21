@@ -44,10 +44,13 @@ reader does not have to discover it.
   `cz` and `swap` plateau near 52–59% of an in-place reference while `h` and
   `rz` reach 98%. This is measured, not modelled, and is the clearest local
   optimisation target in the codebase.
-- **Static placement only.** The mapping is chosen once for the whole circuit.
-  Re-mapping between circuit segments could do better for circuits whose
-  structure changes — that is future work, not something implemented and
-  measured here.
+- **Windowed placement uses an approximate transition cost.** Re-mapping
+  between circuit segments *is* implemented and measured — it is the third
+  lever in the results — but the windows are fixed-width and the dynamic
+  program that chooses them scores transitions with an approximation, while
+  the rewriter pays the exact cost. The two agreed on the measured circuits
+  after a bug that made the planner under-predict its own traffic was fixed;
+  they are not guaranteed to agree in general.
 - **Exhaustive search is optimal only with respect to the model.** When the
   candidate budget is exceeded the search is a greedy heuristic with local
   improvement, and the result says so.

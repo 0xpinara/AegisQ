@@ -112,11 +112,24 @@ matter more than the gate's name.
 
 Established distributed simulators partition the state vector across
 processes and exchange shards for gates acting on the high-order qubits
-\cite{deraedt2007,quest2019,cuquantum}. The usual treatment of placement is to
-apply gates to whichever qubits they name, occasionally reordering qubits so
-that the expensive ones become local. We make that reordering the object of
-study: the runtime carries an explicit logical-to-physical permutation, a cost
-model predicts its consequences in bytes, and a search chooses it.
+\cite{deraedt2007,quest2019,cuquantum}. Reordering qubits so that the
+expensive ones become local is not new: qHiPSTER \cite{smelyanskiy2016} and
+its successor the Intel Quantum Simulator \cite{guerreschi2020} reorder to
+keep communicating gates on local positions, and H{\"a}ner and Steiger
+\cite{haner2017} combine qubit ordering with gate fusion and scheduling in
+the 45-qubit simulation that defines the scale of this problem. Those systems
+choose an ordering as a means to an end and report the end.
+
+What this work adds is not the idea but its treatment as an object of
+measurement. The permutation is explicit in the runtime rather than implicit
+in a scheduling pass; an analytical cost model predicts the consequence of a
+given placement in bytes and messages \emph{before} it is run; the search over
+placements is separated from the runtime that executes them, so the model's
+prediction and the runtime's counters can be compared on every configuration;
+and the placement lever is measured against gate fusion and windowed
+re-mapping under one harness, which is what shows whether the three overlap.
+We make no claim to a faster simulator than the systems above, and
+Section~\ref{sec:limitations} says why no such comparison is attempted here.
 
 \subsection{Post-quantum cryptography}
 
@@ -533,6 +546,7 @@ and one multi-controlled $X$ --- which is exponential in the register width and
 therefore stops where the simulation does.
 
 \section{Limitations}
+\label{sec:limitations}
 
 Every measurement here comes from a single laptop with shared-memory MPI. There
 is no inter-node network, so communication times are best-case; on a real
@@ -545,8 +559,9 @@ optimisations each applies.
 The simulator is exact and noiseless, supports twelve gates and terminal
 measurement only, and requires power-of-two rank counts. The cost model counts
 bytes and messages and does not model topology, congestion, or overlap of
-computation with communication. Placement is chosen once per circuit; dynamic
-re-mapping between circuit segments is future work.
+computation with communication. Windowed placement re-maps between circuit
+segments, but its windows are fixed-width and chosen by a dynamic program over
+a cost approximation rather than by the exact transition cost.
 
 The security layer is a research prototype. A malicious cluster administrator,
 memory disclosure during execution, side channels (including the communication
@@ -555,10 +570,8 @@ and revocation are all outside the threat model.
 
 \section{Future work}
 
-Three directions follow directly from what is measured here. \emph{Dynamic
-re-mapping}: splitting a circuit into windows and re-permuting when the
-predicted saving exceeds the permutation cost, which the cost model already has
-the machinery to decide. \emph{Cluster measurements}: the same experiments on
+Three directions follow directly from what is measured here. \emph{Cluster
+measurements}: the same experiments on
 multiple nodes, where communication is a network rather than a memory copy and
 the byte reductions reported here should translate into larger time reductions.
 \emph{Topology awareness}: extending the cost model beyond byte counts to
