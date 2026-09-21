@@ -36,10 +36,14 @@ reader does not have to discover it.
   a promise of a proportional wall-time reduction, and the measurements show
   cases where traffic falls and wall time barely moves.
 - **The cost model has no local term.** It treats every local position as
-  equivalent. Measured, that is accurate for the kernels that sweep the whole
-  state but wrong for `cz`, whose achieved bandwidth varies by 57% with the
-  target qubit's position. A placement chosen purely to minimise network bytes
-  can therefore leave local performance on the table.
+  equivalent. Measured, that is roughly accurate for the kernels that sweep
+  the whole state and badly wrong for `cz`, whose achieved bandwidth depends
+  strongly on the target qubit's position. The current figures are in
+  [`benchmarks/processed/kernel_position_sensitivity.csv`](../benchmarks/processed/kernel_position_sensitivity.csv)
+  and summarised in the README rather than repeated here, because a number
+  copied into prose stops being true the next time the suite runs. A
+  placement chosen purely to minimise network bytes can leave local
+  performance on the table.
 - **Partial-sweep kernels reach about half the machine's bandwidth.** `cx`,
   `cz` and `swap` plateau near 52–59% of an in-place reference while `h` and
   `rz` reach 98%. This is measured, not modelled, and is the clearest local

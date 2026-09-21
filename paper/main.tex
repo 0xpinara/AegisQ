@@ -77,16 +77,20 @@ qubit $q$ to occupy position $q$. The default assignment --- the identity
 permutation --- is an accident of indexing, and for some circuits it is close
 to the worst possible choice.
 
-This report describes a system built around three questions.
+This report describes a system built around two questions.
 
 \begin{description}
 \item[RQ1] Can communication-aware qubit placement reduce MPI communication
   volume and wall-clock time for distributed state-vector simulation?
 \item[RQ2] What overhead does authenticating and encrypting HPC quantum jobs
   and results with standardised post-quantum cryptography introduce?
-\item[RQ3] How do small Grover and Shor experiments illustrate the
-  cryptographic motivation for post-quantum cryptography?
 \end{description}
+
+Grover and Shor circuits are also run and their query counts reported, but as
+motivation for RQ2 rather than as a question of their own. That Grover needs
+$O(\sqrt{N})$ oracle queries and that Shor's algorithm factors 15 and 21 are
+textbook results; we reproduce them to show the simulator gets them right,
+not as findings.
 
 The simulator is implemented from scratch in C++20 with MPI and OpenMP.
 Qiskit \cite{qiskit} is used only as an external correctness oracle in the test
@@ -503,10 +507,13 @@ concrete optimisation target rather than an unexplained gap.
 
 The same sweep tests an assumption the cost model makes. The model treats the
 local/global distinction as the only thing that matters and ignores which
-local position a qubit occupies. Measured across target positions, that holds
-for the full-sweep kernels and for \texttt{cx} (spread under $6\%$), and
-fails for \texttt{cz}, whose achieved bandwidth varies by $57\%$ with the
-target position. The model is therefore accurate about network traffic and
+local position a qubit occupies. Measured across target positions and
+every thread count, the least position-sensitive kernel is
+\aegisqBestPositionKernel, whose bandwidth still varies by
+\aegisqBestPositionSpread{} in its worst case, and the most sensitive is
+\aegisqWorstPositionKernel{} at \aegisqWorstPositionSpread. Each kernel is
+summarised by its worst thread count rather than its best, since quoting the
+most favourable row would make the assumption look sounder than it is. The model is therefore accurate about network traffic and
 incomplete about local cost.
 
 \subsection{RQ2: cost of the post-quantum layer}
@@ -514,10 +521,12 @@ incomplete about local cost.
 \input{tables/pqc.tex}
 
 Table~\ref{tab:pqc} gives primitive costs. End to end, packing a 20-qubit job
-bundle takes $3.1$\,ms and verifying, decrypting and opening it $5.6$\,ms, with
-$7083$ bytes of envelope overhead independent of circuit size. Against the
-heaviest job in our suite ($582$\,ms, $1792$\,MiB of MPI traffic) that is
-\aegisqEnvelopeOverhead{} of runtime.
+bundle takes $\aegisqPackMs$\,ms and verifying, decrypting and opening it
+$\aegisqVerifyMs$\,ms, with $\aegisqEnvelopeBytes$ bytes of envelope overhead
+independent of circuit size. Against the heaviest job in our suite
+(\aegisqHeaviestCircuit, $\aegisqHeaviestMs$\,ms,
+$\aegisqHeaviestMiB$\,MiB of MPI traffic) that is \aegisqEnvelopeOverhead{}
+of runtime.
 
 The decomposition matters more than the total: only $\aegisqLatticeMicros\,\mu$s of that is
 lattice arithmetic. The remainder is canonical JSON serialisation and base64
@@ -525,7 +534,7 @@ encoding of the circuit. A reader who concluded ``post-quantum cryptography is
 expensive'' from the end-to-end number would be drawing the wrong lesson; the
 serialisation is what an optimisation would need to target.
 
-\subsection{RQ3: why post-quantum cryptography}
+\subsection{Motivation: why post-quantum cryptography}
 
 \input{tables/grover.tex}
 

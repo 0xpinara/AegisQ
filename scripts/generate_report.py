@@ -481,14 +481,20 @@ def build_block() -> str:
 
         positions = report_module.kernel_position_table(report_module.load_kernels())
         if not positions.empty:
-            worst = positions.sort_values("spread", ascending=False).iloc[0]
-            best = positions.sort_values("spread").iloc[0]
+            # Each kernel is summarised by its *worst* spread over thread
+            # counts, not its best. Picking the most flattering row and
+            # presenting it as typical is how "h varies by 1%" got written
+            # next to a table in which h varies by 17%.
+            per_kernel = positions.groupby("kernel")["spread"].max().sort_values()
+            best = {"kernel": per_kernel.index[0], "spread": per_kernel.iloc[0]}
+            worst = {"kernel": per_kernel.index[-1], "spread": per_kernel.iloc[-1]}
             lines.append(
                 "The communication cost model assumes only the local/global distinction "
-                "matters, never which *local* position a qubit occupies. Measured, that "
-                f"holds for most kernels (`{best['kernel']}` varies by "
-                f"{best['spread'] * 100:.0f}% across target positions) and fails for "
-                f"`{worst['kernel']}`, which varies by {worst['spread'] * 100:.0f}%. The "
+                "matters, never which *local* position a qubit occupies. Measured across "
+                "every thread count, the kernel least sensitive to position is "
+                f"`{best['kernel']}` at {best['spread'] * 100:.0f}% in the worst case, "
+                f"and the most sensitive is `{worst['kernel']}` at "
+                f"{worst['spread'] * 100:.0f}%. The "
                 "model is therefore right about network traffic and incomplete about local "
                 "cost — stated here rather than left for a reader to discover."
             )
@@ -809,6 +815,13 @@ def write_measured_macros(data, directory: Path) -> Path:
             )
         measured = report_module.calibration_table(calibration)
         define("aegisqNullTrials", f"{int(measured['trials'].min())}")
+        positions = report_module.kernel_position_table(report_module.load_kernels())
+        if not positions.empty:
+            per_kernel = positions.groupby("kernel")["spread"].max().sort_values()
+            define("aegisqBestPositionKernel", f"\\texttt{{{per_kernel.index[0]}}}")
+            define("aegisqBestPositionSpread", f"{per_kernel.iloc[0] * 100:.0f}\\%")
+            define("aegisqWorstPositionKernel", f"\\texttt{{{per_kernel.index[-1]}}}")
+            define("aegisqWorstPositionSpread", f"{per_kernel.iloc[-1] * 100:.0f}\\%")
         mapped = report_module.mapping_table(data, calibration)
         if not mapped.empty:
             treated = mapped[mapped["bytes_reduction"] > 0]
@@ -866,11 +879,36 @@ def write_measured_macros(data, directory: Path) -> Path:
 
     if not envelope.empty and not mapping.empty:
         steps = envelope.set_index("operation")
-        pack = float(steps["median_us"].get("pack", 0.0))
-        verify = float(steps["median_us"].get("verify_and_open", 0.0))
+
+        def step(name: str) -> float:
+            """One envelope stage's median, or a loud failure.
+
+            `.get(name, 0.0)` was here, and the name was wrong: the row is
+            `pack_job`, not `pack`, so the paper reported the cost of the
+            post-quantum envelope with the packing half silently costed at
+            zero. A default that turns a typo into a plausible number is
+            worse than no default.
+            """
+            if name not in steps.index:
+                raise SystemExit(
+                    f"envelope measurement {name!r} is missing; have {sorted(steps.index)}"
+                )
+            return float(steps.loc[name, "median_us"])
+
+        pack = step("pack_job")
+        verify = step("verify_and_open")
         reference = mapping.sort_values("baseline_wall_s", ascending=False).iloc[0]
         job_ms = float(reference["baseline_wall_s"]) * 1000
         define("aegisqEnvelopeMs", f"{(pack + verify) / 1000:.1f}")
+        define("aegisqPackMs", f"{pack / 1000:.1f}")
+        define("aegisqVerifyMs", f"{verify / 1000:.1f}")
+        define(
+            "aegisqEnvelopeBytes",
+            f"{int(steps.loc['envelope_fixed_overhead', 'bytes'])}",
+        )
+        define("aegisqHeaviestCircuit", f"\\texttt{{{reference['circuit_family']}}}")
+        define("aegisqHeaviestMs", f"{job_ms:.0f}")
+        define("aegisqHeaviestMiB", f"{float(reference['baseline_bytes']) / 2**20:.0f}")
         if job_ms:
             define("aegisqEnvelopeOverhead", f"{(pack + verify) / 10 / job_ms:.2f}\\%")
         if not pqc.empty:

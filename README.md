@@ -1,6 +1,17 @@
 # AegisQ-HPC
 
-**Post-Quantum Secure, Communication-Aware Distributed Quantum Simulation for HPC Clusters**
+**Communication-Aware Distributed Quantum Simulation with Post-Quantum Secure Job Provenance**
+
+> **Scope.** The runtime is multi-node MPI by construction, but every
+> measurement here was taken on a single 8-core laptop with shared-memory MPI
+> and no interconnect, so an "MPI transfer" is a memory copy. Read the two
+> kinds of result differently. The **byte reductions are interconnect-
+> independent** — they are counts of what the runtime hands to MPI, fixed by
+> the circuit and the placement, and a cluster would move the same bytes. The
+> **wall-time reductions are specific to this machine**, and specific to the
+> regime where communication is cheapest; on a real network the same byte
+> saving should buy more time, but that is a prediction, not a result.
+> Nothing here has run on a cluster.
 
 ![status](https://img.shields.io/badge/status-research%20prototype-orange)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
@@ -60,7 +71,12 @@ comparison is made here; see [docs/limitations.md](docs/limitations.md)).
 |---|---|
 | **RQ1** | Can communication-aware qubit placement reduce MPI communication volume and wall-clock time for distributed state-vector simulation? |
 | **RQ2** | What overhead does authenticating and encrypting HPC quantum jobs and results with standardised post-quantum cryptography introduce? |
-| **RQ3** | How do small Grover and Shor experiments illustrate the cryptographic motivation for post-quantum cryptography? |
+
+Grover and Shor circuits are also run, and their query counts reported, but as
+motivation for RQ2 rather than as a question of their own: that Grover needs
+`O(sqrt(N))` oracle queries and Shor factors 15 and 21 are textbook results,
+reproduced here to show the simulator gets them right, not offered as
+findings.
 
 ## Why the state vector must be distributed
 
@@ -243,7 +259,7 @@ Wall time alone cannot say. State-vector simulation is bandwidth-bound, so each 
 
 The kernels that sweep the whole state — a general single-qubit gate and a diagonal one — run at 94–101% of that reference, which is to say they are memory-bound and there is little left to win. The ones that touch only part of the state plateau near 55%: they read and write a strided fraction of the array and leave about half the bandwidth unused. That is a concrete optimisation target rather than a mystery.
 
-The communication cost model assumes only the local/global distinction matters, never which *local* position a qubit occupies. Measured, that holds for most kernels (`h` varies by 1% across target positions) and fails for `cz`, which varies by 53%. The model is therefore right about network traffic and incomplete about local cost — stated here rather than left for a reader to discover.
+The communication cost model assumes only the local/global distinction matters, never which *local* position a qubit occupies. Measured across every thread count, the kernel least sensitive to position is `rz` at 9% in the worst case, and the most sensitive is `cz` at 53%. The model is therefore right about network traffic and incomplete about local cost — stated here rather than left for a reader to discover.
 
 ![Local kernel bandwidth](benchmarks/plots/kernel_bandwidth.png)
 
