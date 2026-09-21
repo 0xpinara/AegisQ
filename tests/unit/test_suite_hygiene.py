@@ -111,3 +111,37 @@ def test_a_missing_identity_reports_what_it_looked_for(tmp_path):
         resolve_identity_file(tmp_path / "absent", "public")
     message = str(caught.value)
     assert "absent.public.json" in message and "tried" in message
+
+
+def test_the_documented_gate_count_matches_the_parser():
+    """ "Twelve gates" is a claim about the input language, and it drifted.
+
+    Adding the fused `u` opcode took the IR to thirteen while three
+    places still said twelve. The number that belongs in prose is the
+    one the OpenQASM reader accepts, since `u` is an internal product
+    the reader rejects on purpose.
+    """
+    from aegisq.circuit.gates import GATE_SPECS
+    from aegisq.circuit.qasm import QASM_OPCODES
+
+    assert set(GATE_SPECS) - set(QASM_OPCODES) == {"u"}
+    assert len(QASM_OPCODES) == 12, (
+        f"the input language now has {len(QASM_OPCODES)} gates; "
+        "README.md and paper/main.tex say twelve"
+    )
+
+    root = Path(__file__).resolve().parents[2]
+    for name in ("README.md", "paper/main.tex"):
+        text = (root / name).read_text(encoding="utf-8")
+        assert "twelve" in text, f"{name} no longer states the gate count"
+
+
+def test_the_qasm_reader_refuses_the_fused_gate():
+    """It is not part of the documented subset, and says so by name."""
+    import pytest as _pytest
+
+    from aegisq.circuit.qasm import QasmError, parse_qasm
+
+    source = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\nu(1,0,0,0,0,0,0,1) q[0];\n'
+    with _pytest.raises(QasmError, match="internal representation"):
+        parse_qasm(source)

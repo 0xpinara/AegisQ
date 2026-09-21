@@ -149,7 +149,8 @@ cryptographic primitive is implemented in this project.
 AegisQ-HPC is four cooperating layers.
 
 \begin{enumerate}
-\item A \textbf{front end} providing a circuit IR over twelve gates
+\item A \textbf{front end} providing a circuit IR over twelve input gates
+  and one fused arbitrary single-qubit unitary, which only the compiler emits
   (\texttt{x y z h s t rx ry rz cx cz swap}) and a documented OpenQASM subset.
   Anything outside the subset is rejected with a line number rather than
   ignored.
@@ -565,8 +566,10 @@ backend and no GPU was available. We make no performance comparison against
 other simulators, because a fair comparison requires care about which
 optimisations each applies.
 
-The simulator is exact and noiseless, supports twelve gates and terminal
-measurement only, and requires power-of-two rank counts. The cost model counts
+The simulator is exact and noiseless, accepts twelve gates in its input
+language --- plus a fused arbitrary single-qubit unitary that only the fusion
+pass produces, and that the OpenQASM reader deliberately rejects --- and
+supports terminal measurement only, and requires power-of-two rank counts. The cost model counts
 bytes and messages and does not model topology, congestion, or overlap of
 computation with communication. Windowed placement re-maps between circuit
 segments, but its windows are fixed-width and chosen by a dynamic program over

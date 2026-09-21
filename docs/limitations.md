@@ -45,9 +45,13 @@ reader does not have to discover it.
   placement chosen purely to minimise network bytes can leave local
   performance on the table.
 - **Partial-sweep kernels reach about half the machine's bandwidth.** `cx`,
-  `cz` and `swap` plateau near 52–59% of an in-place reference while `h` and
-  `rz` reach 98%. This is measured, not modelled, and is the clearest local
-  optimisation target in the codebase.
+  `cz` and `swap` plateau around half of an in-place reference on the same
+  machine, while the kernels that sweep the whole state sit close to it. This
+  is measured, not modelled, and is the clearest local optimisation target in
+  the codebase. Current figures are in
+  [`benchmarks/processed/kernel_bandwidth.csv`](../benchmarks/processed/kernel_bandwidth.csv);
+  they are not repeated here, because a percentage copied into prose stops
+  being true the next time the suite runs.
 - **Windowed placement uses an approximate transition cost.** Re-mapping
   between circuit segments *is* implemented and measured — it is the third
   lever in the results — but the windows are fixed-width and the dynamic

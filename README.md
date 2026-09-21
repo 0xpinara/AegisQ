@@ -55,7 +55,7 @@ comparison is made here; see [docs/limitations.md](docs/limitations.md)).
 
 | Area | Capability |
 |---|---|
-| Simulation | distributed state vector over MPI, OpenMP local kernels, fp64/fp32, twelve gates, terminal measurement |
+| Simulation | distributed state vector over MPI, OpenMP local kernels, fp64/fp32, twelve input gates plus the fused single-qubit unitary the compiler emits, terminal measurement |
 | Placement | gate-role-aware cost model in bytes, exhaustive or heuristic search, applied by the runtime |
 | Fusion | consecutive single-qubit runs multiplied into one unitary, exact including global phase, never increasing communication |
 | Windowed placement | the assignment may change mid-circuit when the saving exceeds the cost of moving, planned by dynamic programming and executed as a circuit rewrite |
