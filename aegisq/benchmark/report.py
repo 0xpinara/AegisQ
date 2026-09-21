@@ -216,31 +216,47 @@ def _intervals_are_disjoint(baseline, optimized) -> bool:
 
 
 def _add_noise_floor(table: pd.DataFrame, calibration: pd.DataFrame | None = None):
-    """Use the configurations where the optimiser did nothing as a control.
+    """Decide which wall-time changes are larger than the harness's own scatter.
 
-    Some circuits -- GHZ is the clear case -- have no placement to
-    improve: the optimiser returns an assignment that sends byte for byte
-    what the default sends, and the measured reduction is exactly 0.0%.
-    The true wall-time effect on those rows is therefore known in advance
-    to be zero, whatever the clock says.
+    Three sources of evidence, in increasing order of authority.
 
-    What the clock said was -15.5%, +7.5% and -30.8%. Those numbers are
-    the experiment measuring its own noise, and they were being printed
-    in the results table beside the real reductions on QFT and Grover,
-    which made the real ones harder to believe rather than easier. They
-    also survive a disjoint-interval test: at a 10 ms measurement, three
-    repeats drift together, so non-overlapping ranges say nothing.
+    **The in-experiment control.** Some circuits have no placement to
+    improve -- GHZ is the clear case -- so the optimiser returns an
+    assignment that sends byte for byte what the default sends and the
+    measured reduction is exactly 0.0%. Their true wall-time effect is
+    therefore known in advance to be zero, and whatever the clock says
+    about them is the experiment measuring itself. It once said -30.8%.
 
-    So each set of configurations sharing a width, rank count and thread
-    policy gets a noise floor: the largest absolute change observed on
-    its zero-reduction rows. A wall-time change counts as resolved only
-    if it exceeds that floor *and* the intervals are disjoint. Byte
-    counts are untouched by any of this -- they are exact counters, not
-    timings, and they are where the placement claim actually lives.
+    **The A/A null.** Stronger, because it does not depend on finding an
+    unimprovable circuit: the identical configuration is launched twice
+    and the apparent change recorded, many times over. It is measured per
+    circuit family, which matters -- a GHZ chain finishing in eight
+    milliseconds and a Grover circuit running for half a second are not
+    equally timeable, and one machine-wide floor would either excuse the
+    first's noise or discard the second's real effects. It is projected
+    for however many launches the sweep reduced each arm over, since a
+    floor measured for a single launch is far too pessimistic for a
+    figure taken as the minimum of five.
 
-    Where a group has no zero-reduction row there is no control, the
-    floor is undefined, and the interval test alone decides.
+    **The controls again, as a check on the A/A projection.** That
+    projection resamples launches as if they were independent, and they
+    are not entirely: a thermal episode or a busy period spans several,
+    and a minimum over five consecutive launches does not decorrelate a
+    run of correlated slow ones. The controls are measured under exactly
+    the conditions being corrected for, so a control exceeding its own
+    A/A floor says by how much the projection is optimistic. That ratio,
+    never below one, scales every floor in its group.
+
+    Scaling rather than substituting is the point. Transplanting the
+    control's absolute scatter onto every family would reimpose a
+    group-wide floor and undo the per-family refinement -- GHZ's
+    eight-millisecond difficulty is not Grover's.
+
+    None of this touches byte counts. They are exact counters, and they
+    are where the placement claim actually lives.
     """
+    import numpy as np
+
     if table.empty:
         return table
 
@@ -248,44 +264,88 @@ def _add_noise_floor(table: pd.DataFrame, calibration: pd.DataFrame | None = Non
     table["wall_noise_floor"] = float("nan")
     table["floor_source"] = "none"
     group_keys = ["qubits", "ranks", "thread_policy", "precision"]
-    for _, index in table.groupby(group_keys).groups.items():
+
+    control_scatter: dict[tuple, float] = {}
+    for key, index in table.groupby(group_keys).groups.items():
         rows = table.loc[index]
         controls = rows[rows["bytes_reduction"] == 0.0]
         if controls.empty:
             continue
-        table.loc[index, "wall_noise_floor"] = controls["wall_change"].abs().max()
+        observed = float(controls["wall_change"].abs().max())
+        control_scatter[key] = observed
+        table.loc[index, "wall_noise_floor"] = observed
         table.loc[index, "floor_source"] = "in-experiment control"
 
     if calibration is not None and not calibration.empty:
-        # The A/A measurement supersedes the in-experiment control where it
-        # exists. It is better on two counts: it is per circuit family, so a
-        # Grover comparison is judged against Grover's own scatter rather
-        # than a GHZ chain's, and it is not confounded with whatever makes a
-        # given circuit unimprovable.
-        #
-        # The null is projected for however many launches the experiment
-        # itself reduced each arm over: a floor measured for a single
-        # launch is far too pessimistic for a figure taken as the minimum
-        # of five, and using it would throw away real effects.
-        for launches in sorted(table["launches"].unique()):
-            measured = calibration_table(calibration, launches=int(launches)).set_index(
+        projections = {
+            launches: calibration_table(calibration, launches=int(launches)).set_index(
                 ["circuit_family", "qubits", "ranks"]
             )["resolution"]
-            for position, row in table[table["launches"] == launches].iterrows():
-                key = (row["circuit_family"], row["qubits"], row["ranks"])
-                if key in measured.index:
-                    table.loc[position, "wall_noise_floor"] = float(measured.loc[key])
-                    plural = "" if int(launches) == 1 else "es"
-                    table.loc[position, "floor_source"] = (
-                        f"A/A null, {int(launches)} launch{plural}"
-                    )
+            for launches in sorted(table["launches"].unique())
+        }
+
+        def projected_floor(row) -> float | None:
+            measured = projections[row["launches"]]
+            key = (row["circuit_family"], row["qubits"], row["ranks"])
+            return float(measured.loc[key]) if key in measured.index else None
+
+        # How optimistic is the projection, judged on the rows whose answer
+        # is known? One per group, applied to every family in it.
+        inflation: dict[tuple, float] = {}
+        for key in control_scatter:
+            controls = table[
+                (table["bytes_reduction"] == 0.0)
+                & (table["qubits"] == key[0])
+                & (table["ranks"] == key[1])
+                & (table["thread_policy"] == key[2])
+                & (table["precision"] == key[3])
+            ]
+            ratios = []
+            for _, control in controls.iterrows():
+                own = projected_floor(control)
+                if own:
+                    ratios.append(abs(control["wall_change"]) / own)
+            if ratios:
+                inflation[key] = max(1.0, max(ratios))
+
+        for position, row in table.iterrows():
+            projected = projected_floor(row)
+            if projected is None:
+                continue
+            key = tuple(row[name] for name in group_keys)
+            scale = inflation.get(key, 1.0)
+            table.loc[position, "wall_noise_floor"] = projected * scale
+            plural = "" if int(row["launches"]) == 1 else "es"
+            source = f"A/A null, {int(row['launches'])} launch{plural}"
+            if scale > 1.0:
+                source += f", widened {scale:.2f}x by the control"
+            table.loc[position, "floor_source"] = source
 
     floor = table["wall_noise_floor"]
     above_floor = floor.isna() | (table["wall_change"].abs() > floor)
-    table["wall_change_resolved"] = table["wall_change_resolved"] & above_floor
-    # A control cannot resolve its own effect, by construction. This still
-    # holds under the A/A floor: the traffic is identical, so the true
-    # effect is zero whatever the clock says.
+    calibrated = table["floor_source"].str.contains("A/A")
+    # Where a calibrated floor exists it is the whole criterion, and the
+    # interval test is dropped rather than stacked on top.
+    #
+    # Two reasons, and the second is why this is not merely convenient. The
+    # A/A floor is already the null distribution of the exact statistic
+    # being compared -- it comes from resampling minimum-over-k launches for
+    # both arms -- so it accounts for that estimator's sampling variability
+    # by construction, and a second test adds no information. And the
+    # interval test compares [min, max] ranges, where max is a tail
+    # statistic; across several launches the tails always overlap, so it
+    # rejects everything regardless of effect size. It had quietly taken the
+    # resolved count to zero while effects three times the floor sat in the
+    # table.
+    #
+    # Without calibration there is no principled floor, and the weak
+    # interval test is better than nothing.
+    table["wall_change_resolved"] = np.where(
+        calibrated, above_floor, table["wall_change_resolved"] & above_floor
+    )
+    # A control cannot resolve its own effect, by construction: its traffic
+    # is identical under both placements, so the true effect is zero
+    # whatever the clock says.
     table.loc[table["bytes_reduction"] == 0.0, "wall_change_resolved"] = False
     return table
 

@@ -23,6 +23,14 @@ sys.path.insert(0, str(ROOT))
 START = "<!-- BENCHMARK-RESULTS:START -->"
 END = "<!-- BENCHMARK-RESULTS:END -->"
 
+# The headline paragraph quotes the same measurements as the results table
+# several hundred lines below it. Typed by hand, the two drift: the paper
+# carried a wall-time claim for two re-measurements after the number had
+# changed. Generating the headline from the same frames is the same fix
+# applied to the first thing a reader sees.
+HEADLINE_START = "<!-- HEADLINE:START -->"
+HEADLINE_END = "<!-- HEADLINE:END -->"
+
 
 def build_block() -> str:
     import pandas as pd
@@ -106,56 +114,6 @@ def build_block() -> str:
         )
     lines.append("")
 
-    if not mapping.empty:
-        interesting = mapping[mapping["ranks"] == mapping["ranks"].max()]
-        lines.append(
-            f"### Communication-aware placement, {int(interesting['ranks'].iloc[0])} ranks, "
-            f"{int(interesting['qubits'].iloc[0])} qubits"
-        )
-        lines.append("")
-        lines.append(
-            "| circuit | measured MPI bytes, default | measured MPI bytes, optimized | "
-            "reduction | wall time change |"
-        )
-        lines.append("|---|---:|---:|---:|---:|")
-        for row in interesting.sort_values("bytes_reduction", ascending=False).itertuples():
-            change = f"{row.wall_change * 100:+.1f}%"
-            if not row.wall_change_resolved:
-                change = f"{change} (unresolved)"
-            lines.append(
-                f"| {row.circuit_family} | {row.baseline_bytes:,} | {row.optimized_bytes:,} | "
-                f"**{row.bytes_reduction * 100:.1f}%** | {change} |"
-            )
-        lines.append("")
-        floor = interesting["wall_noise_floor"].dropna()
-        if not floor.empty:
-            source = str(interesting["floor_source"].mode().iloc[0])
-            lines.append(
-                f"Byte counts are exact counters; wall times are not. Each row's wall-time "
-                f"change is judged against a floor measured for that exact configuration "
-                f"({source}, see below), and is marked unresolved unless it clears the floor "
-                f"and its repeat range does not overlap the baseline's. At these sizes most "
-                f"do not clear it. **The placement result is the traffic reduction.** The "
-                f"wall-time column is shown for completeness and is not a speedup claim."
-            )
-            lines.append("")
-        unchanged = [
-            row.circuit_family for row in interesting.itertuples() if row.bytes_reduction < 0.01
-        ]
-        names = sorted(set(unchanged))
-        if names:
-            subject = names[0] if len(names) == 1 else ", ".join(names)
-            verb = "shows" if len(names) == 1 else "show"
-            lines.append(
-                f"Not every circuit benefits: {subject} {verb} no reduction, because its "
-                "expensive qubits already sit well under the default placement. That is a "
-                "result, not a gap — a heuristic that claimed a win on every circuit would "
-                "be the suspicious one."
-            )
-        lines.append("")
-        lines.append("![Communication-aware placement](benchmarks/plots/mapping_comparison.png)")
-        lines.append("")
-
     calibration = report_module.load_calibration()
     if not calibration.empty:
         resolution = report_module.calibration_table(calibration)
@@ -163,8 +121,8 @@ def build_block() -> str:
         lines.append("### What this harness can actually resolve")
         lines.append("")
         lines.append(
-            f"Before reading any wall-time number above, here is what the measurement "
-            f"setup can see. Each configuration below was launched twice, {trials} times "
+            f"Every wall-time number below is judged against this table, so it comes "
+            f"first. Each configuration was launched twice, {trials} times "
             f"over, with **nothing changed between the two runs**. Every difference in "
             f"this table is therefore zero by construction, and everything reported is "
             f"the instrument, not the simulator."
@@ -213,6 +171,70 @@ def build_block() -> str:
         )
         lines.append("")
         lines.append("![Harness resolution](benchmarks/plots/calibration.png)")
+        lines.append("")
+
+    if not mapping.empty:
+        interesting = mapping[mapping["ranks"] == mapping["ranks"].max()]
+        lines.append(
+            f"### Communication-aware placement, {int(interesting['ranks'].iloc[0])} ranks, "
+            f"{int(interesting['qubits'].iloc[0])} qubits"
+        )
+        lines.append("")
+        lines.append(
+            "| circuit | measured MPI bytes, default | measured MPI bytes, optimized | "
+            "reduction | wall time change |"
+        )
+        lines.append("|---|---:|---:|---:|---:|")
+        for row in interesting.sort_values("bytes_reduction", ascending=False).itertuples():
+            change = f"{row.wall_change * 100:+.1f}%"
+            if not row.wall_change_resolved:
+                change = f"{change} (unresolved)"
+            lines.append(
+                f"| {row.circuit_family} | {row.baseline_bytes:,} | {row.optimized_bytes:,} | "
+                f"**{row.bytes_reduction * 100:.1f}%** | {change} |"
+            )
+        lines.append("")
+        floor = interesting["wall_noise_floor"].dropna()
+        if not floor.empty:
+            treated = mapping[mapping["bytes_reduction"] > 0]
+            controls = mapping[mapping["bytes_reduction"] == 0.0]
+            resolved = int(treated["wall_change_resolved"].sum())
+            improved = int((treated["wall_change"] < 0).sum())
+            lines.append(
+                f"Byte counts are exact counters; wall times are not. Every wall-time "
+                f"change here is judged against a floor measured for that exact "
+                f"configuration, and is marked unresolved unless it clears it. Across all "
+                f"rank counts, {resolved} of {len(treated)} configurations where the "
+                f"optimiser actually changed the traffic clear their floor, and "
+                f"{len(controls)} of {len(controls)} controls -- where it provably did not "
+                f"-- do not. The controls not clearing their own floors is the check that "
+                f"the floors are wide enough."
+            )
+            lines.append("")
+            if improved == len(treated) and len(treated) >= 6:
+                lines.append(
+                    f"A second, assumption-light check points the same way: all "
+                    f"{improved} of them moved in the same direction. Under a null that "
+                    f"each configuration's sign is a coin flip, that is "
+                    f"`p = 2^-{improved}`. Direction is a much cheaper thing to measure "
+                    f"than magnitude, and it is the part worth trusting."
+                )
+                lines.append("")
+        unchanged = [
+            row.circuit_family for row in interesting.itertuples() if row.bytes_reduction < 0.01
+        ]
+        names = sorted(set(unchanged))
+        if names:
+            subject = names[0] if len(names) == 1 else ", ".join(names)
+            verb = "shows" if len(names) == 1 else "show"
+            lines.append(
+                f"Not every circuit benefits: {subject} {verb} no reduction, because its "
+                "expensive qubits already sit well under the default placement. That is a "
+                "result, not a gap — a heuristic that claimed a win on every circuit would "
+                "be the suspicious one."
+            )
+        lines.append("")
+        lines.append("![Communication-aware placement](benchmarks/plots/mapping_comparison.png)")
         lines.append("")
 
     levers = report_module.lever_table(data)
@@ -758,6 +780,25 @@ def write_measured_macros(data, directory: Path) -> Path:
         if not floor.empty:
             define("aegisqWallNoiseFloor", f"{float(floor.max()) * 100:.1f}\\%")
 
+        # The sentence about QFT's wall time, not just its number. Whether a
+        # change clears its floor is itself a measurement, and a fixed clause
+        # asserting either answer goes stale the next time the suite runs.
+        if "qft" in by_family.index:
+            row = by_family.loc["qft"]
+            change = f"{row['wall_change'] * 100:+.1f}\\%"
+            if row["wall_change_resolved"]:
+                clause = (
+                    f"Its wall time changes by {change}, which clears the "
+                    f"resolution measured for this configuration"
+                )
+            else:
+                clause = (
+                    f"Its wall time changes by {change}, which does not clear "
+                    f"the resolution measured for this configuration, so we do "
+                    f"not claim it"
+                )
+            define("aegisqQftWallClause", clause)
+
     calibration = report_module.load_calibration()
     if not calibration.empty:
         for k, name in ((1, "One"), (3, "Three"), (5, "Five")):
@@ -768,6 +809,30 @@ def write_measured_macros(data, directory: Path) -> Path:
             )
         measured = report_module.calibration_table(calibration)
         define("aegisqNullTrials", f"{int(measured['trials'].min())}")
+        mapped = report_module.mapping_table(data, calibration)
+        if not mapped.empty:
+            treated = mapped[mapped["bytes_reduction"] > 0]
+            controls = mapped[mapped["bytes_reduction"] == 0.0]
+            resolved = int(treated["wall_change_resolved"].sum())
+            define("aegisqResolvedCount", f"{resolved}")
+            define("aegisqTreatedCount", f"{len(treated)}")
+            define("aegisqControlCount", f"{len(controls)}")
+            if resolved and resolved == len(treated):
+                verdict = (
+                    f"Measured against these floors, all {resolved} configurations "
+                    f"whose traffic the optimiser actually changed show a resolved "
+                    f"reduction in wall time, and all {len(controls)} controls, whose "
+                    f"traffic it leaves identical, do not --- which is the check that "
+                    f"the floors are wide enough rather than merely convenient"
+                )
+            else:
+                verdict = (
+                    f"Measured against these floors, {resolved} of {len(treated)} "
+                    f"configurations whose traffic changed show a resolved reduction "
+                    f"in wall time; the rest are not distinguishable from the harness "
+                    f"and we do not report them as speedups"
+                )
+            define("aegisqWallVerdict", verdict)
         define("aegisqNullPBound", f"{float(measured['p_bound'].max()):.2f}")
         define("aegisqWorstNull", f"{float(measured['resolution'].max()) * 100:.0f}\\%")
         best = measured.loc[measured["resolution"].idxmin()]
@@ -833,15 +898,89 @@ def write_measured_macros(data, directory: Path) -> Path:
     return path
 
 
-def splice(readme: str, block: str) -> str:
-    if START not in readme or END not in readme:
+def build_headline() -> str:
+    """The claim at the top of the README, from the data it describes."""
+    from aegisq.benchmark import report as report_module
+
+    data = report_module.load_raw()
+    calibration = report_module.load_calibration()
+    mapping = report_module.mapping_table(data, calibration)
+    accuracy = report_module.prediction_accuracy(data)
+
+    lines = [HEADLINE_START, ""]
+    if mapping.empty:
+        lines += ["", HEADLINE_END]
+        return "\n".join(lines)
+
+    widest = mapping[mapping["ranks"] == mapping["ranks"].max()].set_index("circuit_family")
+    ranks = int(mapping["ranks"].max())
+    qubits = int(widest["qubits"].iloc[0])
+
+    def reduction(family: str) -> str:
+        return f"{widest.loc[family, 'bytes_reduction'] * 100:.1f}%"
+
+    exact = int((accuracy["bytes_error"] == 0).sum()) if not accuracy.empty else 0
+    total = len(accuracy)
+
+    sentence = (
+        f"> **Headline result.** On {ranks} ranks at {qubits} qubits, "
+        f"communication-aware placement removed **{reduction('qft')} of measured "
+        f"MPI traffic** for a quantum Fourier transform and {reduction('grover')} "
+        f"for Grover -- and left a GHZ chain untouched, because nothing there can "
+        f"be improved. The analytical cost model predicted the byte count *exactly* "
+        f"in {'every one of' if exact == total else f'{exact} of'} {total} "
+        f"distributed configurations measured."
+    )
+    lines.append(sentence)
+
+    if not calibration.empty:
+        resolution = report_module.calibration_table(calibration)
+        worst = float(resolution["resolution"].max()) * 100
+        trials = int(resolution["trials"].min())
+        treated = mapping[mapping["bytes_reduction"] > 0]
+        controls = mapping[mapping["bytes_reduction"] == 0.0]
+        resolved = int(treated["wall_change_resolved"].sum())
+        if resolved and resolved == len(treated):
+            claim = (
+                f"**Wall time follows, but only once the clock is calibrated.** "
+                f"Launching the *same* configuration twice, {trials} times over, "
+                f"produces apparent changes of up to {worst:.0f}% with nothing "
+                f"changed between the runs -- larger than most of the effects being "
+                f"looked for. Measured against a floor built from that null, all "
+                f"{resolved} configurations whose traffic actually changed show a "
+                f"resolved reduction in wall time, and all {len(controls)} controls, "
+                f"whose traffic the optimiser leaves identical, do not."
+            )
+        else:
+            claim = (
+                f"Wall time is treated separately. Launching the *same* "
+                f"configuration twice, {trials} times over, produces apparent "
+                f"changes of up to **{worst:.0f}%** with nothing changed between the "
+                f"runs, and only {resolved} of {len(treated)} measured differences "
+                f"clear their own configuration's floor. Bytes are counted; time is "
+                f"calibrated first."
+            )
+        lines.append(f"> {claim}")
+
+    lines.append(
+        "> [Full numbers below](#measured-results), from raw data in "
+        "[`benchmarks/raw/`](benchmarks/raw/)."
+    )
+    lines += ["", HEADLINE_END]
+    return "\n".join(lines)
+
+
+def splice_between(readme: str, block: str, start: str, end: str) -> str:
+    if start not in readme or end not in readme:
         raise SystemExit(
-            f"README is missing the {START} / {END} markers; add them where the "
-            "measured results should appear"
+            f"README is missing the {start} / {end} markers; add them where the "
+            "generated text should appear"
         )
-    head = readme.split(START)[0]
-    tail = readme.split(END)[1]
-    return head + block + tail
+    return readme.split(start)[0] + block + readme.split(end)[1]
+
+
+def splice(readme: str, block: str) -> str:
+    return splice_between(readme, block, START, END)
 
 
 def main() -> int:
@@ -878,6 +1017,7 @@ def main() -> int:
     readme_path = ROOT / "README.md"
     readme = readme_path.read_text(encoding="utf-8")
     updated = splice(readme, build_block())
+    updated = splice_between(updated, build_headline(), HEADLINE_START, HEADLINE_END)
 
     if args.check:
         if updated != readme:

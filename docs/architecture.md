@@ -115,6 +115,11 @@ Rejected, with a line number and a reason:
 Rejecting is the point. A silently ignored instruction would produce a wrong
 state and a benchmark that looks perfectly reasonable.
 
+Identifiers are **case-sensitive**, as in the OpenQASM specification: `H` is
+not accepted as a spelling of `h`. The error says so and names the lowercase
+form, rather than quietly accepting one case for gate names while rejecting it
+for declaration keywords.
+
 `to_qasm(circuit)` emits the same subset, and a roundtrip test asserts that
 parsing the emitted text reproduces the original instruction list and the same
 simulated state.

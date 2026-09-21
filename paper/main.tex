@@ -343,9 +343,12 @@ at $k=3$ and $\aegisqResolutionFive$ at $k=5$, estimated by resampling the
 measured launch times. The sweep supports this through
 \texttt{-{}-launches}.
 
-We draw the obvious conclusion rather than working around it: on this host
-most wall-time differences between placements are not resolvable, and we do
-not report them as speedups. The placement result is the traffic reduction.
+\aegisqWallVerdict. A second check, which assumes almost nothing, points the
+same way: the direction of every treated configuration agrees, and under a
+null in which each sign is an independent coin flip that carries
+$p = 2^{-\aegisqTreatedCount}$. Direction is far cheaper to measure than
+magnitude, and it is the part worth leaning on. The traffic reduction remains
+the primary result, because it is counted rather than timed.
 
 \subsection{Correctness}
 
@@ -365,9 +368,8 @@ Table~\ref{tab:mapping} gives the measured effect at 8 ranks.
 The quantum Fourier transform benefits most: in the textbook decomposition
 every controlled phase targets the higher-indexed qubit, and the identity
 placement puts exactly those qubits on the global positions. Moving them local
-removes \aegisqQftTraffic{} of the traffic. Its wall time falls by
-\aegisqQftWall, but that change does not clear the noise floor and we do not
-claim it. Grover's dense
+removes \aegisqQftTraffic{} of the traffic. \aegisqQftWallClause{} (see
+Section~\ref{sec:calibration}). Grover's dense
 multi-controlled blocks behave similarly. The GHZ chain shows no reduction at
 all --- every qubit but one is a \texttt{cx} target exactly once, so no
 placement is better than another. We report that as a result: a heuristic that

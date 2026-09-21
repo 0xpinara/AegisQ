@@ -42,4 +42,18 @@ make test-mpi      # requires mpirun
 | `tests/crypto` | envelope, signature, replay and tamper tests |
 | `tests/cross_validation` | randomised comparisons against Qiskit |
 
-Mark long tests with `@pytest.mark.slow` so the default developer loop stays fast.
+Mark long tests with `@pytest.mark.slow`. Nothing deselects them by default --
+the whole single-process suite finishes in under twenty seconds, so excluding
+anything would cost more in surprise than it saves in time -- but the marker
+means `pytest -m "not slow"` works when you want it.
+
+The C++ unit tests are separate and run under `ctest`:
+
+```
+make test          # builds, then runs ctest and pytest
+ctest --test-dir build --output-on-failure
+```
+
+The distributed suite needs an MPI launcher and is not collected by a plain
+`pytest` run; use `./scripts/run_mpi_tests.sh`, which picks an interpreter with
+an MPI-enabled core and fails loudly rather than skipping if it cannot.

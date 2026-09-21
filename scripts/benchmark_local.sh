@@ -33,9 +33,15 @@ echo "==> harness calibration: the same run against itself (${TRIALS:-10} trials
     --option grover:iterations=2
 
 echo "==> optimisation levers (${QUBITS} qubits, ranks ${RANKS})"
+# --launches is the estimator the calibration suite argues for: the minimum
+# over independent launches rather than over repeats inside one, because
+# interference here only ever slows a run down. Five launches take the
+# median resolution from about 27% to about 6%, which is the difference
+# between reporting wall time and not being able to.
 "$PYTHON" -m aegisq.cli.main benchmark mapping \
     --circuits ghz,qft,ising,random,grover \
     --qubits "$QUBITS" --ranks "$RANKS" --repeats "$REPEATS" \
+    --launches "${LAUNCHES:-5}" \
     --levers placement,windowed,fusion \
     --option grover:iterations=2
 
