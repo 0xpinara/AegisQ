@@ -1,7 +1,7 @@
 operation,median_us,mean_us,bytes,detail
 bundle_size,0.0,0.0,78059,"qft 20 qubits, 980 gates; complete .aqjob file"
 envelope_fixed_overhead,0.0,0.0,7083,"qft 20 qubits, 980 gates; KEM ciphertext, signature, header and AEAD tag"
-pack_job,2999.125048518181,3358.6367778480053,78059,"qft 20 qubits, 980 gates"
+pack_job,2981.103491038084,3352.811671793461,78059,"qft 20 qubits, 980 gates"
 payload_base64,0.0,0.0,70976,"qft 20 qubits, 980 gates; the same payload after base64 expansion"
 payload_plaintext,0.0,0.0,53232,"qft 20 qubits, 980 gates; canonical circuit + manifest"
-verify_and_open,5470.7289673388,5844.183266162872,78059,"qft 20 qubits, 980 gates"
+verify_and_open,5468.250252306461,5793.254133313894,78059,"qft 20 qubits, 980 gates"

@@ -827,10 +827,13 @@ def write_measured_macros(data, directory: Path) -> Path:
                 )
             else:
                 verdict = (
-                    f"Measured against these floors, {resolved} of {len(treated)} "
-                    f"configurations whose traffic changed show a resolved reduction "
-                    f"in wall time; the rest are not distinguishable from the harness "
-                    f"and we do not report them as speedups"
+                    f"Measured against these floors, {resolved} of the {len(treated)} "
+                    f"configurations whose traffic the optimiser actually changed show "
+                    f"a resolved reduction in wall time, and none of the "
+                    f"{len(controls)} controls, whose traffic it leaves identical, do "
+                    f"--- which is the check that the floors are wide enough rather "
+                    f"than merely convenient. The remainder is not distinguishable "
+                    f"from the harness and we do not report it as a speedup"
                 )
             define("aegisqWallVerdict", verdict)
         define("aegisqNullPBound", f"{float(measured['p_bound'].max()):.2f}")
@@ -940,25 +943,22 @@ def build_headline() -> str:
         treated = mapping[mapping["bytes_reduction"] > 0]
         controls = mapping[mapping["bytes_reduction"] == 0.0]
         resolved = int(treated["wall_change_resolved"].sum())
-        if resolved and resolved == len(treated):
-            claim = (
-                f"**Wall time follows, but only once the clock is calibrated.** "
-                f"Launching the *same* configuration twice, {trials} times over, "
-                f"produces apparent changes of up to {worst:.0f}% with nothing "
-                f"changed between the runs -- larger than most of the effects being "
-                f"looked for. Measured against a floor built from that null, all "
-                f"{resolved} configurations whose traffic actually changed show a "
-                f"resolved reduction in wall time, and all {len(controls)} controls, "
-                f"whose traffic the optimiser leaves identical, do not."
-            )
-        else:
-            claim = (
-                f"Wall time is treated separately. Launching the *same* "
-                f"configuration twice, {trials} times over, produces apparent "
-                f"changes of up to **{worst:.0f}%** with nothing changed between the "
-                f"runs, and only {resolved} of {len(treated)} measured differences "
-                f"clear their own configuration's floor. Bytes are counted; time is "
-                f"calibrated first."
+        improved = int((treated["wall_change"] < 0).sum())
+        count = "all " if resolved == len(treated) else f"{resolved} of "
+        claim = (
+            f"**Wall time follows, but only once the clock is calibrated.** "
+            f"Launching the *same* configuration twice, {trials} times over, "
+            f"produces apparent changes of up to {worst:.0f}% with nothing changed "
+            f"between the runs -- larger than most of the effects being looked for. "
+            f"Measured against a floor built from that null, {count}"
+            f"{len(treated)} configurations whose traffic actually changed show a "
+            f"resolved reduction in wall time, and none of the {len(controls)} "
+            f"controls -- whose traffic the optimiser leaves identical -- do."
+        )
+        if improved == len(treated):
+            claim += (
+                f" All {improved} also move in the same direction, which under a "
+                f"null of independent coin flips is `p = 2^-{improved}`."
             )
         lines.append(f"> {claim}")
 

@@ -21,7 +21,7 @@ comparison is made here; see [docs/limitations.md](docs/limitations.md)).
 <!-- HEADLINE:START -->
 
 > **Headline result.** On 8 ranks at 20 qubits, communication-aware placement removed **87.2% of measured MPI traffic** for a quantum Fourier transform and 72.3% for Grover -- and left a GHZ chain untouched, because nothing there can be improved. The analytical cost model predicted the byte count *exactly* in every one of 99 distributed configurations measured.
-> **Wall time follows, but only once the clock is calibrated.** Launching the *same* configuration twice, 10 times over, produces apparent changes of up to 71% with nothing changed between the runs -- larger than most of the effects being looked for. Measured against a floor built from that null, all 12 configurations whose traffic actually changed show a resolved reduction in wall time, and all 3 controls, whose traffic the optimiser leaves identical, do not.
+> **Wall time follows, but only once the clock is calibrated.** Launching the *same* configuration twice, 10 times over, produces apparent changes of up to 32% with nothing changed between the runs -- larger than most of the effects being looked for. Measured against a floor built from that null, 11 of 12 configurations whose traffic actually changed show a resolved reduction in wall time, and none of the 3 controls -- whose traffic the optimiser leaves identical -- do. All 12 also move in the same direction, which under a null of independent coin flips is `p = 2^-12`.
 > [Full numbers below](#measured-results), from raw data in [`benchmarks/raw/`](benchmarks/raw/).
 
 <!-- HEADLINE:END -->
@@ -109,9 +109,7 @@ aegisq doctor   # report MPI / OpenMP / liboqs / Qiskit availability
 
 <!-- BENCHMARK-RESULTS:START -->
 
-All figures below were measured on **Apple M2 (8 logical cores)**, macOS-15.6.1-arm64-arm-64bit, Open MPI v5.0.10, AegisQ 0.1.0 at commit `60780a80765f`. They describe that host and are not a claim about cluster hardware.
-
-> Some rows were recorded from a working tree with uncommitted changes, so they cannot be attributed to a commit with confidence. Re-run `./scripts/benchmark_local.sh` from a clean tree to replace them.
+All figures below were measured on **Apple M2 (8 logical cores)**, macOS-15.6.1-arm64-arm-64bit, Open MPI v5.0.10, AegisQ 0.1.0 at commit `b30089f5902a`. They describe that host and are not a claim about cluster hardware.
 
 ### What this harness can actually resolve
 
@@ -119,25 +117,25 @@ Every wall-time number below is judged against this table, so it comes first. Ea
 
 | circuit | ranks | median run | median apparent change | worst | resolution |
 |---|---:|---:|---:|---:|---:|
-| ghz | 2 | 7 ms | 4.8% | 9.3% | **9.3%** |
-| grover | 2 | 410 ms | 4.2% | 26.4% | **26.4%** |
-| ising | 2 | 109 ms | 0.4% | 2.2% | **2.2%** |
-| qft | 2 | 290 ms | 0.8% | 2.7% | **2.7%** |
-| random | 2 | 91 ms | 1.3% | 10.3% | **10.3%** |
-| ghz | 4 | 7 ms | 1.3% | 5.6% | **5.6%** |
-| grover | 4 | 431 ms | 1.7% | 11.1% | **11.1%** |
-| ising | 4 | 113 ms | 0.6% | 8.1% | **8.1%** |
-| qft | 4 | 293 ms | 1.9% | 22.9% | **22.9%** |
-| random | 4 | 93 ms | 3.5% | 15.6% | **15.6%** |
-| ghz | 8 | 12 ms | 9.2% | 70.6% | **70.6%** |
-| grover | 8 | 509 ms | 13.5% | 22.6% | **22.6%** |
-| ising | 8 | 150 ms | 5.0% | 10.8% | **10.8%** |
-| qft | 8 | 292 ms | 3.4% | 15.7% | **15.7%** |
-| random | 8 | 135 ms | 8.8% | 21.7% | **21.7%** |
+| ghz | 2 | 7 ms | 3.7% | 22.8% | **22.8%** |
+| grover | 2 | 396 ms | 0.8% | 12.7% | **12.7%** |
+| ising | 2 | 111 ms | 1.9% | 15.0% | **15.0%** |
+| qft | 2 | 294 ms | 1.2% | 17.5% | **17.5%** |
+| random | 2 | 92 ms | 0.5% | 1.9% | **1.9%** |
+| ghz | 4 | 7 ms | 2.5% | 8.6% | **8.6%** |
+| grover | 4 | 418 ms | 2.5% | 12.1% | **12.1%** |
+| ising | 4 | 113 ms | 0.3% | 2.1% | **2.1%** |
+| qft | 4 | 302 ms | 3.7% | 11.8% | **11.8%** |
+| random | 4 | 93 ms | 2.3% | 30.5% | **30.5%** |
+| ghz | 8 | 11 ms | 19.8% | 31.9% | **31.9%** |
+| grover | 8 | 478 ms | 2.9% | 9.9% | **9.9%** |
+| ising | 8 | 161 ms | 4.4% | 20.7% | **20.7%** |
+| qft | 8 | 327 ms | 6.7% | 24.4% | **24.4%** |
+| random | 8 | 130 ms | 2.7% | 30.7% | **30.7%** |
 
 `resolution` is the quantile of the apparent change at `1 - 1/(trials+1)`, so an effect exceeding it carries `p <= 0.09` under exchangeability. The relationship worth noting is with duration, not with rank count: a GHZ chain finishing in under ten milliseconds cannot be timed to better than tens of percent, while a Grover circuit running for half a second can. This is a laptop with four performance and four efficiency cores and no separate interconnect, and the distribution of launch times is right-skewed -- interference makes a run slower, never faster.
 
-That one-sidedness says which estimator to use. Taking the minimum over several independent launches, rather than over repeats inside one, converges on the uncontended runtime; resampling the null above puts the median resolution at **11%** at 1 launch, **6%** at 3 launches, **2%** at 5 launches. `aegisq benchmark mapping --launches N` runs the sweep that way.
+That one-sidedness says which estimator to use. Taking the minimum over several independent launches, rather than over repeats inside one, converges on the uncontended runtime; resampling the null above puts the median resolution at **15%** at 1 launch, **4%** at 3 launches, **2%** at 5 launches. `aegisq benchmark mapping --launches N` runs the sweep that way.
 
 ![Harness resolution](benchmarks/plots/calibration.png)
 
@@ -145,13 +143,13 @@ That one-sidedness says which estimator to use. Taking the minimum over several 
 
 | circuit | measured MPI bytes, default | measured MPI bytes, optimized | reduction | wall time change |
 |---|---:|---:|---:|---:|
-| qft | 981,467,136 | 125,829,120 | **87.2%** | -18.6% |
-| grover | 1,879,048,192 | 520,093,696 | **72.3%** | -24.4% |
-| random | 411,041,792 | 251,658,240 | **38.8%** | -11.5% |
-| ising | 452,984,832 | 385,875,968 | **14.8%** | -9.1% |
-| ghz | 25,165,824 | 25,165,824 | **0.0%** | +0.1% (unresolved) |
+| qft | 981,467,136 | 125,829,120 | **87.2%** | -22.8% |
+| grover | 1,879,048,192 | 520,093,696 | **72.3%** | -25.6% |
+| random | 411,041,792 | 251,658,240 | **38.8%** | -16.5% |
+| ising | 452,984,832 | 385,875,968 | **14.8%** | -12.2% (unresolved) |
+| ghz | 25,165,824 | 25,165,824 | **0.0%** | -11.9% (unresolved) |
 
-Byte counts are exact counters; wall times are not. Every wall-time change here is judged against a floor measured for that exact configuration, and is marked unresolved unless it clears it. Across all rank counts, 12 of 12 configurations where the optimiser actually changed the traffic clear their floor, and 3 of 3 controls -- where it provably did not -- do not. The controls not clearing their own floors is the check that the floors are wide enough.
+Byte counts are exact counters; wall times are not. Every wall-time change here is judged against a floor measured for that exact configuration, and is marked unresolved unless it clears it. Across all rank counts, 11 of 12 configurations where the optimiser actually changed the traffic clear their floor, and 3 of 3 controls -- where it provably did not -- do not. The controls not clearing their own floors is the check that the floors are wide enough.
 
 A second, assumption-light check points the same way: all 12 of them moved in the same direction. Under a null that each configuration's sign is a coin flip, that is `p = 2^-12`. Direction is a much cheaper thing to measure than magnitude, and it is the part worth trusting.
 
@@ -183,14 +181,14 @@ Placement and fusion are not independent either: for `random` the pair removes 5
 
 | circuit | qubits | ranks | wall time (s) | speedup | efficiency |
 |---|---:|---:|---:|---:|---:|
-| ising | 22 | 1 | 1.806 | 1.00x | 100% |
-| ising | 22 | 2 | 0.974 | 1.85x | 93% |
-| ising | 22 | 4 | 0.704 | 2.57x | 64% |
-| ising | 22 | 8 | 0.682 | 2.65x | 33% |
-| qft | 22 | 1 | 5.260 | 1.00x | 100% |
-| qft | 22 | 2 | 2.894 | 1.82x | 91% |
-| qft | 22 | 4 | 1.998 | 2.63x | 66% |
-| qft | 22 | 8 | 2.137 | 2.46x | 31% |
+| ising | 22 | 1 | 1.843 | 1.00x | 100% |
+| ising | 22 | 2 | 0.960 | 1.92x | 96% |
+| ising | 22 | 4 | 0.608 | 3.03x | 76% |
+| ising | 22 | 8 | 0.686 | 2.69x | 34% |
+| qft | 22 | 1 | 5.084 | 1.00x | 100% |
+| qft | 22 | 2 | 2.740 | 1.86x | 93% |
+| qft | 22 | 4 | 1.947 | 2.61x | 65% |
+| qft | 22 | 8 | 2.057 | 2.47x | 31% |
 
 ![Strong scaling](benchmarks/plots/strong_scaling.png)
 
@@ -200,7 +198,7 @@ The placement search is exhaustive while the candidate count fits a budget and f
 
 Every cost rule except `swap` depends on one qubit's membership: a single-qubit gate costs if *its* qubit is global, a `cx` costs if *its target* is. `swap` costs if *either* operand is, and an OR is not a sum. So for a circuit without `swap` gates the objective is linear in the global set, and sorting the per-qubit costs gives the optimum outright — no search.
 
-For the rest, measured: across 99 sampled configurations, 93 of which genuinely needed the heuristic, it matched the exhaustive optimum **99 times out of 99** (worst gap 0.00%) while running up to 41x faster.
+For the rest, measured: across 99 sampled configurations, 93 of which genuinely needed the heuristic, it matched the exhaustive optimum **99 times out of 99** (worst gap 0.00%) while running up to 40x faster.
 
 ### A fourth lever, and what it costs
 
@@ -237,15 +235,15 @@ Wall time alone cannot say. State-vector simulation is bandwidth-bound, so each 
 
 | kernel | GB/s achieved | reference | fraction |
 |---|---:|---:|---:|
-| rz | 83.6 | 73.1 | 114% |
-| h | 75.3 | 73.1 | 103% |
-| cz | 47.8 | 73.1 | 65% |
-| swap | 43.1 | 73.1 | 59% |
-| cx | 40.7 | 73.1 | 56% |
+| rz | 81.4 | 80.9 | 101% |
+| h | 76.3 | 80.9 | 94% |
+| cz | 47.2 | 80.9 | 58% |
+| swap | 44.5 | 80.9 | 55% |
+| cx | 41.7 | 80.9 | 51% |
 
-The kernels that sweep the whole state — a general single-qubit gate and a diagonal one — run at 103–114% of that reference, which is to say they are memory-bound and there is little left to win. The ones that touch only part of the state plateau near 60%: they read and write a strided fraction of the array and leave about half the bandwidth unused. That is a concrete optimisation target rather than a mystery.
+The kernels that sweep the whole state — a general single-qubit gate and a diagonal one — run at 94–101% of that reference, which is to say they are memory-bound and there is little left to win. The ones that touch only part of the state plateau near 55%: they read and write a strided fraction of the array and leave about half the bandwidth unused. That is a concrete optimisation target rather than a mystery.
 
-The communication cost model assumes only the local/global distinction matters, never which *local* position a qubit occupies. Measured, that holds for most kernels (`cx` varies by 1% across target positions) and fails for `cz`, which varies by 48%. The model is therefore right about network traffic and incomplete about local cost — stated here rather than left for a reader to discover.
+The communication cost model assumes only the local/global distinction matters, never which *local* position a qubit occupies. Measured, that holds for most kernels (`h` varies by 1% across target positions) and fails for `cz`, which varies by 53%. The model is therefore right about network traffic and incomplete about local cost — stated here rather than left for a reader to discover.
 
 ![Local kernel bandwidth](benchmarks/plots/kernel_bandwidth.png)
 
@@ -254,16 +252,16 @@ The communication cost model assumes only the local/global distinction matters, 
 | operation | median | size |
 |---|---:|---:|
 | ML-DSA-65 keygen | 53.7 us | 1952 B |
-| ML-DSA-65 sign | 94.6 us | 3309 B |
+| ML-DSA-65 sign | 95.8 us | 3309 B |
 | ML-DSA-65 verify | 49.5 us | 3309 B |
-| ML-KEM-768 decapsulate | 20.0 us | 32 B |
+| ML-KEM-768 decapsulate | 19.9 us | 32 B |
 | ML-KEM-768 encapsulate | 17.5 us | 1088 B |
-| ML-KEM-768 keygen | 16.8 us | 1184 B |
+| ML-KEM-768 keygen | 16.9 us | 1184 B |
 | pack a job bundle (end to end) | 3.0 ms | — |
 | verify, decrypt and open it | 5.5 ms | — |
 | envelope overhead, independent of circuit size | — | 7083 B |
 
-For scale: the heaviest job measured here (grover, 20 qubits, 8 ranks) runs for 482 ms and moves 1792 MiB over MPI. Securing it costs 8.5 ms end to end and 6.9 KiB on the wire — 1.76% of the runtime. Only 182 us of that is lattice arithmetic; the rest is canonical serialisation and base64, which is where an optimisation would actually pay off.
+For scale: the heaviest job measured here (grover, 20 qubits, 8 ranks) runs for 494 ms and moves 1792 MiB over MPI. Securing it costs 8.4 ms end to end and 6.9 KiB on the wire — 1.71% of the runtime. Only 183 us of that is lattice arithmetic; the rest is canonical serialisation and base64, which is where an optimisation would actually pay off.
 
 ### Why post-quantum cryptography, in one table
 
