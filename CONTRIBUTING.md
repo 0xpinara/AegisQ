@@ -42,10 +42,12 @@ make test-mpi      # requires mpirun
 | `tests/crypto` | envelope, signature, replay and tamper tests |
 | `tests/cross_validation` | randomised comparisons against Qiskit |
 
-Mark long tests with `@pytest.mark.slow`. Nothing deselects them by default --
-the whole single-process suite finishes in under twenty seconds, so excluding
-anything would cost more in surprise than it saves in time -- but the marker
-means `pytest -m "not slow"` works when you want it.
+Mark long tests with `@pytest.mark.slow`. `make test` runs
+`-m "not slow and not mpi and not gpu"`, so the marker does exclude a test
+from the default developer loop; a bare `pytest tests` runs everything except
+the distributed suite, which needs a launcher and is skipped without one.
+Both are fast -- the full single-process suite is under twenty seconds -- so
+prefer `pytest tests` before pushing.
 
 The C++ unit tests are separate and run under `ctest`:
 
