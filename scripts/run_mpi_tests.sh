@@ -24,7 +24,11 @@ fi
 # adapter, `ibv_create_srq()` returns "Operation not supported", UCX fails
 # to build a worker, and MPI_Init_thread aborts before a single test runs.
 # That is what had been failing about one run in four here, and why only
-# the MPICH leg failed: Open MPI selects shared memory on its own.
+# the MPICH leg failed: Open MPI selects shared memory on its own. The
+# diagnosis is confirmed, not inferred -- the failing run printed
+# "ibv_create_srq() failed: Operation not supported" followed by an
+# MPI_Init_thread abort, and the MPICH leg has passed since this line
+# was added.
 #
 # Restricting the transport list to shared memory, loopback and TCP leaves
 # the relevant paths -- an intra-node exchange is a memory copy either way.
