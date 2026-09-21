@@ -4,7 +4,7 @@
 Demonstrates the quadratic query advantage that motivates doubling symmetric
 key sizes in post-quantum guidance. It says nothing about breaking AES.
 
-    python examples/grover.py --bits 6 --marked 37
+$ python examples/grover.py --bits 6 --marked 37
 """
 
 from __future__ import annotations

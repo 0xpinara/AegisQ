@@ -5,7 +5,7 @@ The QFT is the circuit where qubit placement matters most: every controlled
 phase targets the higher-indexed qubit, and the default placement puts exactly
 those qubits on the rank-selecting positions.
 
-    mpirun -np 8 python examples/qft.py --qubits 24
+$ mpirun -np 8 python examples/qft.py --qubits 24
 """
 
 from __future__ import annotations

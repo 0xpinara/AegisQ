@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Trotterised transverse-field Ising evolution.
 
-    python examples/ising.py --qubits 14 --steps 6
-    mpirun -np 4 python examples/ising.py --qubits 22 --steps 4
+$ python examples/ising.py --qubits 14 --steps 6
+$ mpirun -np 4 python examples/ising.py --qubits 22 --steps 4
 """
 
 from __future__ import annotations

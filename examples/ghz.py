@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """GHZ state preparation, run locally or across MPI ranks.
 
-    python examples/ghz.py
-    mpirun -np 4 python examples/ghz.py --qubits 24
+$ python examples/ghz.py
+$ mpirun -np 4 python examples/ghz.py --qubits 24
 """
 
 from __future__ import annotations

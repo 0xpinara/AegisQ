@@ -51,11 +51,11 @@ paper: report
 		echo "tectonic not installed; see paper/main.tex"
 
 lint:
-	$(PYTHON) -m ruff check aegisq tests scripts
-	$(PYTHON) -m ruff format --check aegisq tests
+	$(PYTHON) -m ruff check aegisq tests scripts examples
+	$(PYTHON) -m ruff format --check aegisq tests scripts examples
 
 format:
-	$(PYTHON) -m ruff format aegisq tests
+	$(PYTHON) -m ruff format aegisq tests scripts examples
 	@command -v clang-format >/dev/null && \
 		clang-format -i cpp/src/*.cpp cpp/include/aegisq/*.hpp cpp/tests/*.cpp cpp/tests/*.hpp || \
 		echo "clang-format not installed; skipped C++ formatting"

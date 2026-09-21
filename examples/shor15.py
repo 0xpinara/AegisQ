@@ -6,8 +6,8 @@ RSA modulus needs thousands of logical qubits and error correction; simulating
 even a few dozen qubits costs exponential memory, which is the premise of this
 whole project.
 
-    python examples/shor15.py
-    python examples/shor15.py --modulus 21 --counting 6
+$ python examples/shor15.py
+$ python examples/shor15.py --modulus 21 --counting 6
 """
 
 from __future__ import annotations
@@ -35,7 +35,10 @@ def main() -> int:
         )
         print()
         result = run_shor(
-            args.modulus, args.base, shots=args.shots, seed=args.seed,
+            args.modulus,
+            args.base,
+            shots=args.shots,
+            seed=args.seed,
             counting_qubits=args.counting,
         )
     else:

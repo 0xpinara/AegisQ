@@ -19,8 +19,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install ruff
-      - run: ruff check aegisq tests scripts
-      - run: ruff format --check aegisq tests
+      - run: ruff check aegisq tests scripts examples
+      - run: ruff format --check aegisq tests scripts examples
       - name: clang-format
         run: |
           sudo apt-get update && sudo apt-get install -y clang-format
