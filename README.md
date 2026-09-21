@@ -13,6 +13,10 @@
 > saving should buy more time, but that is a prediction, not a result.
 > Nothing here has run on a cluster.
 
+[![ci](https://github.com/0xpinara/AegisQ/actions/workflows/ci.yml/badge.svg)](https://github.com/0xpinara/AegisQ/actions/workflows/ci.yml)
+[![mpi](https://github.com/0xpinara/AegisQ/actions/workflows/mpi.yml/badge.svg)](https://github.com/0xpinara/AegisQ/actions/workflows/mpi.yml)
+[![docs](https://github.com/0xpinara/AegisQ/actions/workflows/docs.yml/badge.svg)](https://github.com/0xpinara/AegisQ/actions/workflows/docs.yml)
+
 ![status](https://img.shields.io/badge/status-research%20prototype-orange)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![c++](https://img.shields.io/badge/C%2B%2B-20-blue)
@@ -98,8 +102,8 @@ problem at the centre of this project.
 ## Quick start
 
 ```bash
-git clone https://github.com/0xpinara/AegisQ-HPC.git
-cd AegisQ-HPC
+git clone https://github.com/0xpinara/AegisQ.git
+cd AegisQ
 
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,crypto,benchmark,validation]"

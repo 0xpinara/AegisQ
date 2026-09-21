@@ -48,8 +48,8 @@ dev = [
 aegisq = "aegisq.cli.main:main"
 
 [project.urls]
-Homepage = "https://github.com/0xpinara/AegisQ-HPC"
-Documentation = "https://github.com/0xpinara/AegisQ-HPC/tree/main/docs"
+Homepage = "https://github.com/0xpinara/AegisQ"
+Documentation = "https://github.com/0xpinara/AegisQ/tree/main/docs"
 
 [tool.setuptools.packages.find]
 include = ["aegisq*"]

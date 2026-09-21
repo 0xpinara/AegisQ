@@ -145,3 +145,40 @@ def test_the_qasm_reader_refuses_the_fused_gate():
     source = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\nu(1,0,0,0,0,0,0,1) q[0];\n'
     with _pytest.raises(QasmError, match="internal representation"):
         parse_qasm(source)
+
+
+def test_every_repository_url_matches_the_real_remote():
+    """The first command in the README has to be the one that works.
+
+    It was not. The quick start cloned `0xpinara/AegisQ-HPC`, which is a
+    404, then changed into a directory that would not exist, and
+    pyproject pointed package metadata at the same missing repository.
+    Checked against the configured git remote rather than the network,
+    so this runs offline and in CI.
+    """
+    import re
+    import subprocess
+
+    root = Path(__file__).resolve().parents[2]
+    remote = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        capture_output=True,
+        text=True,
+        cwd=root,
+        check=False,
+    )
+    if remote.returncode != 0 or not remote.stdout.strip():
+        pytest.skip("no git remote configured")
+
+    slug = re.sub(r"\.git$", "", remote.stdout.strip()).rsplit("/", 2)[-2:]
+    expected = "/".join(slug)
+
+    pattern = re.compile(r"github\.com[:/]([\w.-]+/[\w.-]+?)(?:\.git)?(?=[)\s\"'/]|$)")
+    for name in ("README.md", "pyproject.toml", "CONTRIBUTING.md"):
+        path = root / name
+        if not path.exists():
+            continue
+        for found in set(pattern.findall(path.read_text(encoding="utf-8"))):
+            if found.split("/")[0] != expected.split("/")[0]:
+                continue  # a third party's repository, not ours
+            assert found == expected, f"{name} points at {found}, remote is {expected}"
