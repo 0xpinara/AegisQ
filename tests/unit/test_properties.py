@@ -374,3 +374,83 @@ def test_gate_validation_rejects_out_of_range_operands(gate, qubits):
     params = (0.5,) * spec.num_params
     with pytest.raises(Exception, match="out of range"):
         circuit.append(Gate(gate, operands, params))
+
+
+@given(
+    circuit=circuits(min_qubits=3, max_qubits=6, max_gates=20),
+    ranks_exponent=st.integers(min_value=1, max_value=2),
+    window_size=st.integers(min_value=1, max_value=12),
+    restore_order=st.booleans(),
+)
+def test_windowed_placement_preserves_the_state(
+    circuit, ranks_exponent, window_size, restore_order
+):
+    """The windowed rewrite must be an exact identity on the state.
+
+    It is the most involved transformation in the compiler: gates are
+    re-expressed on slots, a change of assignment becomes SWAPs, and the
+    amplitudes come back permuted. The existing tests pin it on fixed
+    seeds and five named families; this walks the whole generator,
+    including `u` gates and every window size down to one gate.
+    """
+    import numpy as np
+
+    from aegisq.compiler import CommunicationCostModel
+    from aegisq.compiler.dynamic_mapper import (
+        apply_plan,
+        permute_amplitudes,
+        plan_dynamic_placement,
+    )
+    from aegisq.runtime import Simulator
+
+    world_size = 2**ranks_exponent
+    if circuit.num_qubits - ranks_exponent < 1:
+        return  # no local qubit left; the runtime refuses this by design
+
+    model = CommunicationCostModel(circuit.num_qubits, world_size)
+    plan = plan_dynamic_placement(
+        circuit, model, window_size=window_size, restore_order=restore_order
+    )
+    rewritten = apply_plan(circuit, plan, model)
+
+    expected = Simulator("reference").run(circuit).statevector
+    got = Simulator("reference").run(rewritten).statevector
+    got = permute_amplitudes(got, plan.final_slots)
+
+    assert np.allclose(got, expected, atol=1e-10), (
+        f"windowed rewrite changed the state: {circuit.num_qubits} qubits, "
+        f"{world_size} ranks, window {window_size}, restore={restore_order}"
+    )
+    if restore_order:
+        assert plan.final_slots == tuple(range(circuit.num_qubits))
+
+
+@given(
+    circuit=circuits(min_qubits=3, max_qubits=6, max_gates=20),
+    ranks_exponent=st.integers(min_value=1, max_value=2),
+    window_size=st.integers(min_value=1, max_value=12),
+)
+def test_windowed_plan_predicts_the_traffic_it_causes(circuit, ranks_exponent, window_size):
+    """The plan's own cost has to match what the rewritten circuit costs.
+
+    A planner that under-predicts its own traffic picks windows on false
+    information, and that bug has been in this file before.
+    """
+    from aegisq.compiler import CommunicationCostModel
+    from aegisq.compiler.cost_model import default_global_qubits
+    from aegisq.compiler.dynamic_mapper import apply_plan, plan_dynamic_placement
+
+    world_size = 2**ranks_exponent
+    if circuit.num_qubits - ranks_exponent < 1:
+        return
+
+    model = CommunicationCostModel(circuit.num_qubits, world_size)
+    plan = plan_dynamic_placement(circuit, model, window_size=window_size)
+    rewritten = apply_plan(circuit, plan, model)
+
+    actual = model.estimate(
+        rewritten, default_global_qubits(circuit.num_qubits, world_size)
+    ).bytes_sent
+    assert plan.dynamic_bytes == actual, (
+        f"plan claims {plan.dynamic_bytes} bytes, rewrite costs {actual}"
+    )
