@@ -147,8 +147,15 @@ void bind_distributed_statevector(py::module_& m, const char* name) {
         .def("apply_swap", &DSV::apply_swap, py::arg("a"), py::arg("b"))
         .def("apply_gate", &DSV::apply_gate, py::arg("gate"))
         .def("apply_circuit", &DSV::apply_circuit, py::arg("circuit"))
-        .def("norm", &DSV::norm)
-        .def("local_squared_norm", &DSV::local_squared_norm)
+        .def("norm", &DSV::norm,
+             "Norm of the whole state vector.\n\nCOLLECTIVE: every rank must call this, and call "
+             "it in the same order as the others. Calling it on one rank only deadlocks the job "
+             "with no diagnostic, because the ranks that skipped it never enter the reduction the "
+             "caller is waiting on.")
+        .def("local_squared_norm", &DSV::local_squared_norm,
+             "Squared norm of this rank's shard only. Not collective, and "
+             "the natural building block when you want to avoid a "
+             "reduction.")
         .def(
             "measure_all",
             [](const DSV& self, std::uint64_t shots, std::uint64_t seed) {
@@ -159,13 +166,23 @@ void bind_distributed_statevector(py::module_& m, const char* name) {
                 }
                 return counts;
             },
-            py::arg("shots"), py::arg("seed"))
-        .def("gather",
-             [](const DSV& self) {
-                 const std::vector<std::complex<double>> full = self.gather();
-                 return py::array_t<std::complex<double>>(static_cast<py::ssize_t>(full.size()),
-                                                          full.data());
-             })
+            py::arg("shots"), py::arg("seed"),
+            "Sample the full distribution.\n\nCOLLECTIVE: every rank must call this, and call it "
+            "in the same order as the others. Calling it on one rank only deadlocks the job with "
+            "no diagnostic, because the ranks that skipped it never enter the reduction the caller "
+            "is waiting on.")
+        .def(
+            "gather",
+            [](const DSV& self) {
+                const std::vector<std::complex<double>> full = self.gather();
+                return py::array_t<std::complex<double>>(static_cast<py::ssize_t>(full.size()),
+                                                         full.data());
+            },
+            "Assemble the whole state vector on every rank. Defeats the "
+            "point of distributing it, so it is for tests and small "
+            "cases.\n\nCOLLECTIVE: every rank must call this, and call it in the same order as the "
+            "others. Calling it on one rank only deadlocks the job with no diagnostic, because the "
+            "ranks that skipped it never enter the reduction the caller is waiting on.")
         .def("local_amplitudes",
              [](const DSV& self) {
                  return py::array_t<std::complex<Real>>(static_cast<py::ssize_t>(self.local_size()),
@@ -181,7 +198,11 @@ void bind_distributed_statevector(py::module_& m, const char* name) {
         .def(
             "reduced_metrics",
             [](const DSV& self) { return metrics_to_dict(self.reduced_metrics()); },
-            "Counters summed (bytes/calls) or maximised (times) over all ranks.")
+            "Counters summed (bytes/calls) or maximised (times) over all "
+            "ranks.\n\nCOLLECTIVE: every rank must call this, and call it in "
+            "the same order as the others. Calling it on one rank only "
+            "deadlocks the job with no diagnostic, because the ranks that "
+            "skipped it never enter the reduction the caller is waiting on.")
         .def("reset_metrics", &DSV::reset_metrics);
 }
 

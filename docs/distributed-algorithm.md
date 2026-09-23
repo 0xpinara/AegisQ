@@ -133,3 +133,36 @@ Implemented: layout arithmetic, allocation, reset, allreduced norm, test-only
 `gather`, and every gate in the supported set across all placements. The
 remaining phases add instrumentation (measured bytes and time), an analytical
 cost model, and the mapper that chooses the placement.
+
+## Which calls are collective
+
+Four methods on a distributed state reduce or gather across the whole world,
+and every rank has to make the call:
+
+| Call | Underlying | Why |
+|---|---|---|
+| `norm()` | `MPI_Allreduce` | the norm is a sum over all shards |
+| `gather()` | `MPI_Allgather` | assembles the whole vector on every rank |
+| `measure_all(shots, seed)` | `MPI_Allreduce` + `MPI_Allgatherv` | the sampler walks probability mass that lives on every rank |
+| `reduced_metrics()` | `MPI_Allreduce` | sums byte counters and takes the slowest time |
+
+Skipping one on a single rank does not raise anything. The ranks that did call
+it block inside the reduction, the rank that skipped it runs ahead, and the job
+stops with no output and no error — which reads exactly like a hang in the
+simulation itself. The usual way to write the bug is:
+
+```python
+if rank() == 0:
+    print(state.norm())        # every other rank is now stuck
+```
+
+The fix is to call it everywhere and print in one place:
+
+```python
+value = state.norm()           # all ranks
+if rank() == 0:
+    print(value)
+```
+
+`local_squared_norm()` is the non-collective counterpart, and is what to reach
+for when a per-rank number is all that is needed.

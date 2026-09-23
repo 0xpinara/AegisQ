@@ -137,3 +137,28 @@ def test_invalid_operands_are_rejected(native_core):
 def test_unknown_precision_is_rejected(native_core):
     with pytest.raises(ValueError, match="precision"):
         new_state(2, "fp16")
+
+
+def test_collective_methods_say_that_they_are_collective():
+    """Calling one of these on a single rank hangs the whole job.
+
+    They are MPI_Allreduce / MPI_Allgather underneath, so a rank that
+    skips the call never enters the reduction the others are waiting in,
+    and the job stops with no error and no output. I hit this writing a
+    probe with `if rank() == 0: print(state.norm())` and spent a while
+    assuming the simulator had deadlocked. The docstring is the only
+    warning the caller gets, so it has to be there.
+    """
+    from aegisq import native_core
+
+    core = native_core()
+    if core is None:
+        pytest.skip("native core is not built")
+
+    state_class = core.DistributedStateVectorF64
+    for name in ("norm", "gather", "measure_all", "reduced_metrics"):
+        doc = getattr(state_class, name).__doc__ or ""
+        assert "COLLECTIVE" in doc, f"{name} does not warn that it is collective"
+
+    # And the one that deliberately is not, so the distinction stays useful.
+    assert "Not collective" in (state_class.local_squared_norm.__doc__ or "")
