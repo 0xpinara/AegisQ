@@ -179,3 +179,69 @@ def test_non_unitary_fused_gate_is_rejected():
 
     with pytest.raises(CircuitError, match="not unitary"):
         Circuit(1).append(Gate("u", (0,), (1.0, 0, 1.0, 0, 0, 0, 1.0, 0)))
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_fusing_before_placing_is_never_worse(seed):
+    """Placement has to be chosen for the circuit that will actually run.
+
+    Fusion rewrites the circuit, so a placement picked before it was
+    optimised against a circuit that no longer exists. Measured on
+    random circuits the difference is real - up to about 12% of traffic
+    - so the order is not a matter of taste.
+    """
+    from aegisq.algorithms import random_circuit
+    from aegisq.compiler import CommunicationCostModel, StaticCommunicationMapper, fuse
+
+    circuit = random_circuit(12, depth=18, seed=seed)
+    model = CommunicationCostModel(12, 4)
+    mapper = StaticCommunicationMapper(model)
+
+    before = mapper.optimize(circuit).global_qubits
+    place_then_fuse = model.estimate(fuse(circuit), before).bytes_sent
+
+    fused = fuse(circuit)
+    after = mapper.optimize(fused).global_qubits
+    fuse_then_place = model.estimate(fused, after).bytes_sent
+
+    assert fuse_then_place <= place_then_fuse
+
+
+@pytest.mark.parametrize("family", ["qft", "grover", "random"])
+def test_the_most_aggressive_fusion_is_never_beaten(family):
+    """`min_run` is fusion's only tunable, and turning it up never helps.
+
+    Worth checking rather than assuming: if some larger `min_run` won on
+    traffic, placement and fusion would have a joint search space and
+    running them in sequence would be leaving something behind. It does
+    not, so they do not.
+    """
+    from aegisq.algorithms import build_circuit
+    from aegisq.compiler import CommunicationCostModel, StaticCommunicationMapper
+    from aegisq.compiler.fusion import fuse_single_qubit_runs
+
+    options = {"iterations": 2} if family == "grover" else {}
+    circuit = build_circuit(family, 12, **options)
+    model = CommunicationCostModel(12, 4)
+    mapper = StaticCommunicationMapper(model)
+
+    def traffic(min_run: int) -> int:
+        fused = fuse_single_qubit_runs(circuit, min_run=min_run).circuit
+        return model.estimate(fused, mapper.optimize(fused).global_qubits).bytes_sent
+
+    baseline = traffic(2)
+    for min_run in (3, 4, 6):
+        assert traffic(min_run) >= baseline
+
+
+def test_the_benchmark_runner_fuses_before_it_places():
+    """The property above only helps if the pipeline is in that order."""
+    import inspect
+
+    from aegisq.benchmark import runner
+
+    source = inspect.getsource(runner.measure)
+    # The call site, not the import at the top of the function.
+    fuse_at = source.index("circuit = fuse(circuit)")
+    place_at = source.index("optimize_placement(circuit")
+    assert fuse_at < place_at, "placement is chosen before fusion rewrites the circuit"

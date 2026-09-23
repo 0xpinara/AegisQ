@@ -489,7 +489,39 @@ fixed-total-cores policy the same QFT reaches only $0.87\times$ --- that is, on
 constant hardware, partitioning costs more than it saves, which is the honest
 framing of what MPI buys on a single node.
 
+\subsection{Ordering the local qubits}
+\label{sec:localorder}
+
+The cost model decides which qubits are global, and is silent about the rest:
+two placements with the same global set move byte for byte the same traffic,
+so the local order was left at the identity. The kernel sweep of
+Section~\ref{sec:kernels} says that order is not free in time. The most
+position-sensitive kernel, \aegisqWorstPositionKernel, varies by
+\aegisqWorstPositionSpread{} across local target positions; the least,
+\aegisqBestPositionKernel, by \aegisqBestPositionSpread. Since reordering
+locally costs no traffic, choosing the order well is free.
+
+We do so by counting how often each qubit is the position-sensitive operand of
+each opcode --- the target for two-qubit gates, which is what the sweep varies
+--- pricing every (qubit, position) pair from the measured table, and solving
+the resulting assignment. The objective is a sum of per-qubit terms, so this
+is a linear assignment problem and the Hungarian algorithm returns the exact
+optimum.
+
+The result is a negative one on this circuit mix, and we report it as such.
+Predicted savings in local kernel time are $0.4\%$ for the QFT, $0.0\%$ for
+Ising, $1.6\%$ for Grover and $2.9\%$ for random circuits --- all below the
+resolution established in Section~\ref{sec:calibration}, so none is claimed
+as a speedup. These circuits are dominated by \texttt{rz}, \texttt{cx} and
+\texttt{h}, whose position spread is small, and \texttt{cz} is rare in all of
+them. On a synthetic \texttt{cz}-heavy circuit the prediction rises to about
+$20\%$ and the chosen order puts the \texttt{cz} targets on the fast
+positions, which is the behaviour the kernel data predicts. The freedom is
+real and now exploited exactly; on this benchmark mix there is simply little
+to exploit.
+
 \subsection{Are the local kernels efficient?}
+\label{sec:kernels}
 
 Wall time says whether a run was fast, not whether the implementation was
 good. State-vector simulation is bandwidth-bound, so each kernel is compared
@@ -587,9 +619,20 @@ measurements}: the same experiments on
 multiple nodes, where communication is a network rather than a memory copy and
 the byte reductions reported here should translate into larger time reductions.
 \emph{Topology awareness}: extending the cost model beyond byte counts to
-account for the interconnect a job is actually running on. The measured
-interaction between placement and fusion also suggests that the two should be
-searched jointly rather than applied in sequence.
+account for the interconnect a job is actually running on. \emph{A local term
+in the cost model}: the measured spread in \texttt{cz} bandwidth across local
+target positions is invisible to a model that counts only network bytes, so a
+placement can be network-optimal and locally poor;
+Section~\ref{sec:localorder} takes a first step and finds little to gain on
+this circuit mix.
+
+An earlier draft listed joint search over placement and fusion here. It does
+not belong: fusion rewrites the circuit, so the placement must be chosen
+afterwards --- measured on random circuits, choosing it first costs up to
+$12\%$ more traffic --- and the pipeline already runs in that order. Fusion's
+only tunable is the minimum run length, and its most aggressive setting is
+never beaten, so there is no joint space left to search. Both properties are
+asserted in the test suite rather than left as an expectation.
 
 \section{Conclusion}
 
