@@ -223,3 +223,49 @@ congestion, overlap between computation and communication, NUMA effects or MPI
 implementation differences. A predicted reduction in bytes is therefore not a
 promise of a proportional reduction in wall-clock time — which is precisely
 why the benchmark suite measures both.
+
+## Ordering the local qubits
+
+The cost model decides which qubits are global. Everything below that cut is
+interchangeable as far as traffic goes: two placements with the same global
+set send byte for byte the same data. The optimiser therefore had nothing to
+say about local order and left it at the identity.
+
+The kernel sweep says the order is not free in time. At 22 qubits on eight
+threads a `cz` on local position 1 runs at 22 GB/s and the same gate on
+position 21 runs at 47. `h` and `rz` lean the other way by rather less. So
+there is a choice to make, and it costs no traffic to make it.
+
+`optimise_local_order` counts how often each qubit is the position-sensitive
+operand of each opcode — the *target* for two-qubit gates, since that is what
+the sweep varies — prices every (qubit, position) pair by interpolating the
+measured table, and solves the resulting assignment problem. The objective is
+a sum of per-qubit terms, so this is a linear assignment and the Hungarian
+algorithm gives the exact optimum. It is written out in `local_order.py`
+rather than taken from scipy, which is not a dependency of the package.
+
+What it is worth, on the circuits measured here:
+
+| circuit | predicted local-time saving |
+|---|---:|
+| qft | 0.4% |
+| ising | 0.0% |
+| grover | 1.6% |
+| random | 2.9% |
+| a synthetic `cz`-heavy circuit | 19–23% |
+
+The honest reading is that the freedom exists, the algorithm exploits it
+exactly, and for this benchmark mix there is almost nothing to exploit — the
+circuits are dominated by `rz`, `cx` and `h`, whose position spread is small,
+and `cz` is rare in all of them. The predicted savings sit below the noise
+floor measured in [benchmark-methodology.md](benchmark-methodology.md), so
+they are not reported as speedups. The synthetic case is there to show the
+mechanism does what the kernel data says it should when the gate mix calls
+for it.
+
+Two assumptions are worth knowing. Costs between the three measured positions
+are interpolated linearly, and three points cannot tell you whether the curve
+is straight. And the table is measured at one circuit width and applied at
+all of them; on a circuit much narrower than 22 qubits every local position
+falls at or below the first anchor, so the model has nothing to say rather
+than something wrong to say.

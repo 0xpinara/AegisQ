@@ -62,9 +62,14 @@ reader does not have to discover it.
 - **Exhaustive search is optimal only with respect to the model.** When the
   candidate budget is exceeded the search is a greedy heuristic with local
   improvement, and the result says so.
-- **Ordering inside each group is ignored.** Byte volume depends only on which
-  qubits are global, so the optimiser does not distinguish placements that
-  differ only in local ordering — which could matter for cache behaviour.
+- **Local ordering is optional and its payoff is small here.** Byte volume
+  depends only on which qubits are global, so the local order is free to
+  choose. `aegisq optimize --local-order` chooses it, pricing each position
+  from the kernel sweep and solving the assignment exactly. On the benchmark
+  circuits the predicted saving is 0–3% of local kernel time, which is under
+  the harness's noise floor, so it is not claimed as a speedup. On a
+  `cz`-heavy circuit — the case the sweep says should matter — the prediction
+  is about 20%. It is off by default and is not applied by the runtime.
 
 ## Measurements in this repository
 

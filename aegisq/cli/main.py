@@ -119,6 +119,12 @@ def _cmd_optimize(args: argparse.Namespace) -> int:
     mapper = StaticCommunicationMapper(model, candidate_budget=args.candidate_budget)
     result = mapper.optimize(circuit)
 
+    local = None
+    if args.local_order:
+        from aegisq.compiler.local_order import optimise_local_order
+
+        local = optimise_local_order(circuit, result.global_qubits, circuit.num_qubits)
+
     if args.json:
         payload = result.as_dict()
         payload["circuit"] = {
@@ -127,6 +133,13 @@ def _cmd_optimize(args: argparse.Namespace) -> int:
             "gates": len(circuit),
             "depth": circuit.depth(),
         }
+        if local is not None:
+            payload["local_order"] = {
+                "mapping": list(local.mapping),
+                "order": list(local.local_order),
+                "predicted_local_saving": local.predicted_saving,
+                "note": "cost-model prediction of local kernel time, not a measurement",
+            }
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
 
@@ -140,6 +153,18 @@ def _cmd_optimize(args: argparse.Namespace) -> int:
     )
     print()
     print(result.report())
+    if local is not None:
+        print()
+        print("Local ordering (free in bytes; the global set is untouched)")
+        print(f"  order, position 0 first: {' '.join(str(q) for q in local.local_order)}")
+        print(
+            f"  predicted local kernel time: "
+            f"{local.predicted_saving * 100:.2f}% less than the identity order"
+        )
+        print(
+            "  This is a cost-model prediction from the kernel sweep, not a "
+            "measurement of this circuit."
+        )
     return 0
 
 
@@ -1232,6 +1257,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     optimize.add_argument(
         "--fuse", action="store_true", help="fuse single-qubit runs before planning"
+    )
+    optimize.add_argument(
+        "--local-order",
+        action="store_true",
+        help=(
+            "also choose the order of the local qubits, which costs no MPI "
+            "traffic; priced from the kernel position sweep"
+        ),
     )
     optimize.add_argument(
         "--windowed",
