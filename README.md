@@ -113,6 +113,18 @@ make test       # C++ unit tests and single-process Python tests
 aegisq doctor   # report MPI / OpenMP / liboqs / Qiskit availability
 ```
 
+There is also a `Dockerfile` (Ubuntu 24.04, OpenMPI, OpenMP, liboqs) that
+builds the same environment without installing anything locally:
+
+```bash
+docker build -t aegisq .
+docker run --rm aegisq                    # aegisq doctor
+docker run --rm aegisq pytest tests -q
+```
+
+It is not built in CI, so treat it as a convenience rather than a guarantee;
+the checked path is the one above.
+
 ### Requirements
 
 | Component | Purpose | Required |

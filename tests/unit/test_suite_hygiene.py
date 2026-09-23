@@ -174,11 +174,22 @@ def test_every_repository_url_matches_the_real_remote():
     expected = "/".join(slug)
 
     pattern = re.compile(r"github\.com[:/]([\w.-]+/[\w.-]+?)(?:\.git)?(?=[)\s\"'/]|$)")
-    for name in ("README.md", "pyproject.toml", "CONTRIBUTING.md"):
+    # Every tracked text file, rather than a list I have to remember to
+    # extend: the first version of this test named three files and missed
+    # CITATION.cff, which was still pointing at the dead repository.
+    tracked = subprocess.run(
+        ["git", "ls-files"], capture_output=True, text=True, cwd=root, check=False
+    ).stdout.split()
+    suffixes = {".md", ".toml", ".cff", ".yml", ".yaml", ".tex", ".cfg", ".txt"}
+    for name in tracked:
         path = root / name
-        if not path.exists():
+        if path.suffix not in suffixes or not path.exists():
             continue
-        for found in set(pattern.findall(path.read_text(encoding="utf-8"))):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:  # pragma: no cover - binary in a text suffix
+            continue
+        for found in set(pattern.findall(text)):
             if found.split("/")[0] != expected.split("/")[0]:
                 continue  # a third party's repository, not ours
             assert found == expected, f"{name} points at {found}, remote is {expected}"
