@@ -113,3 +113,68 @@ def test_two_qubit_matrices_are_unitary():
 def test_compose_requires_matching_width():
     with pytest.raises(CircuitError, match="compose"):
         Circuit(2).compose(Circuit(3))
+
+
+def test_bool_is_not_accepted_as_a_qubit_index():
+    """`True` is an int in Python, so the check has to exclude bool on purpose."""
+    import pytest
+
+    from aegisq.circuit.circuit import Circuit, CircuitError
+
+    circuit = Circuit(2)
+    with pytest.raises(CircuitError, match="must be an int"):
+        circuit.h(True)
+
+
+def test_bool_is_not_accepted_as_a_gate_parameter():
+    import pytest
+
+    from aegisq.circuit.circuit import Circuit, CircuitError
+
+    circuit = Circuit(2)
+    with pytest.raises(CircuitError, match="real number"):
+        circuit.rz(0, True)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_angles_are_rejected(value):
+    """A NaN angle would propagate silently through the whole state vector."""
+    from aegisq.circuit.circuit import Circuit, CircuitError
+
+    circuit = Circuit(1)
+    with pytest.raises(CircuitError, match="finite"):
+        circuit.rz(0, value)
+
+
+def test_compose_keeps_gates_and_measurements_from_both_sides():
+    from aegisq.circuit.circuit import Circuit
+
+    left = Circuit(3, name="left").h(0)
+    left.measure(0)
+    right = Circuit(3, name="right").cx(0, 1)
+    right.measure(2)
+
+    joined = left.compose(right, name="joined")
+    assert [g.opcode for g in joined] == ["h", "cx"]
+    assert sorted(joined.measured_qubits) == [0, 2]
+    assert joined.name == "joined"
+
+
+def test_compose_rejects_a_wider_circuit():
+    import pytest
+
+    from aegisq.circuit.circuit import Circuit, CircuitError
+
+    with pytest.raises(CircuitError, match="cannot compose"):
+        Circuit(2).compose(Circuit(3))
+
+
+def test_printing_a_long_circuit_truncates():
+    from aegisq.circuit.circuit import Circuit
+
+    circuit = Circuit(1)
+    for _ in range(25):
+        circuit.h(0)
+    text = str(circuit)
+    assert "... 5 more" in text
+    assert text.count("\n") == 21  # header plus twenty gates

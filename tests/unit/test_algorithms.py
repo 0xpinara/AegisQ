@@ -357,3 +357,23 @@ def test_random_circuits_are_reproducible():
     second = random_circuit(6, depth=5, seed=11)
     assert [str(g) for g in first] == [str(g) for g in second]
     assert [str(g) for g in random_circuit(6, depth=5, seed=12)] != [str(g) for g in first]
+
+
+@pytest.mark.parametrize("repeats", [1, 2, 3])
+def test_layered_ghz_still_ends_in_a_ghz_state(repeats):
+    """Each extra layer prepares GHZ, undoes it, and prepares it again.
+
+    It exists to give the benchmark depth without changing the answer, so
+    the answer is what to check. Reachable as `build_circuit("ghz", n,
+    repeats=k)` but nothing covered it.
+    """
+    import numpy as np
+
+    from aegisq.algorithms import build_circuit
+    from aegisq.algorithms.ghz import ghz
+    from aegisq.runtime import Simulator
+
+    layered = build_circuit("ghz", 4, repeats=repeats)
+    reference = Simulator("reference").run(ghz(4)).statevector
+    assert np.allclose(Simulator("reference").run(layered).statevector, reference, atol=1e-12)
+    assert len(layered) == 4 + 8 * (repeats - 1)
